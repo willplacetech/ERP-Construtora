@@ -69,6 +69,16 @@ describe('Navegação e Assistente integrado', () => {
     expect(screen.queryByRole('button', { name: 'Confirmar e Executar' })).toBeNull();
   });
 
+  it('organiza os módulos de RH e destaca a rota selecionada sem perder a navegação', async () => {
+    abrir('/rh/colaboradores');
+    const navegacaoRH = screen.getByRole('navigation', { name: 'Módulos de Recursos Humanos' });
+    expect(navegacaoRH.querySelectorAll('a')).toHaveLength(4);
+    expect(screen.getByRole('link', { name: /Colaboradores Equipe e alocações/ }).getAttribute('aria-current')).toBe('page');
+    fireEvent.click(screen.getByRole('link', { name: /Folha de pagamento Fechamento e valores/ }));
+    expect(await screen.findByText(/Total geral:/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: /Folha de pagamento Fechamento e valores/ }).getAttribute('aria-current')).toBe('page');
+  });
+
   it('mostra falhas de lançamentos sem informar que todas as prévias tiveram sucesso', async () => {
     api.post.mockImplementation(async (url) => ({ data: url.endsWith('processar') ? {
       resposta: 'Confira a despesa', requerConfirmacao: true,
