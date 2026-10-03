@@ -7,7 +7,6 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import connectDB from './config/db.js';
 import errorHandler from './middleware/errorHandler.js';
-import { isValidEmail } from './utils/security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -51,19 +50,6 @@ dotenv.config();
 
 if (!process.env.MONGO_URI || !process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 	throw new Error('MONGO_URI e JWT_SECRET com pelo menos 32 caracteres sao obrigatorios');
-}
-if (
-	process.env.NODE_ENV === 'production'
-	&& (
-		!isValidEmail((process.env.SUPER_ADMIN_EMAIL || process.env.ADMIN_EMAIL || '').trim())
-		||
-		!process.env.FRONTEND_URL
-		|| (process.env.EMAIL_PROVIDER || 'resend').toLowerCase() !== 'resend'
-		|| !process.env.RESEND_API_KEY
-		|| !process.env.EMAIL_FROM
-	)
-) {
-	throw new Error('SUPER_ADMIN_EMAIL (ou ADMIN_EMAIL), FRONTEND_URL, EMAIL_PROVIDER=resend, RESEND_API_KEY e EMAIL_FROM sao obrigatorios em producao');
 }
 
 const app = express();

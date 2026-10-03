@@ -180,6 +180,13 @@ convida seu administrador e popula dados demonstrativos automaticamente.
 
 ### Convites e recuperacao de senha
 
+As variaveis `SUPER_ADMIN_EMAIL` (ou `ADMIN_EMAIL`), `FRONTEND_URL`, `EMAIL_PROVIDER`,
+`RESEND_API_KEY` e `EMAIL_FROM` sao opcionais para iniciar o backend, inclusive em
+producao. `MONGO_URI` e `JWT_SECRET` com pelo menos 32 caracteres continuam obrigatorios.
+Sem email de super-admin configurado, o acesso global de super-admin nao e reconhecido.
+Sem configurar o envio de email, convites e recuperacao de senha nao enviam mensagens.
+Sem `FRONTEND_URL`, os links usam `http://localhost:5173`.
+
 Em desenvolvimento, configure `EMAIL_PROVIDER=console`; os links serao impressos no
 terminal. Em producao, configure `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, `EMAIL_FROM`
 (remetente verificado no Resend) e `FRONTEND_URL`. As rotas publicas
