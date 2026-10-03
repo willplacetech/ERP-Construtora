@@ -1,10 +1,9 @@
 const COMMON_PASSWORDS = new Set([
-  '12345678',
-  'admin123',
-  'password1',
-  'password123',
-  'qwerty123',
-  'senha123'
+	'12345678',
+	'password1',
+	'password123',
+	'qwerty123',
+	'senha123'
 ]);
 
 export function isValidEmail(email) {

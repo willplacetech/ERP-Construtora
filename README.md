@@ -36,6 +36,21 @@ O seed cria o administrador usando `ADMIN_EMAIL` e `ADMIN_PASSWORD` do `.env`.
 Configure uma senha forte antes de executa-lo; uma conta criada pelo seed precisa
 trocar a senha no primeiro login.
 
+O backend tambem cria automaticamente a conta inicial ao iniciar, apos conectar ao
+MongoDB, quando `ADMIN_EMAIL` e `ADMIN_PASSWORD` estao configurados e a conta ainda nao
+existe. Se `SUPER_ADMIN_EMAIL` estiver definido, esse email tem prioridade; mantenha
+os dois emails iguais. A conta e criada ativa, como super-admin, vinculada a empresa
+`Demo` (criada se necessario), com senha bcrypt e troca obrigatoria no primeiro acesso.
+Essa inicializacao nao popula dados demonstrativos e nao altera contas existentes.
+
+No Render, isso permite criar a conta sem acesso ao Shell: configure essas variaveis
+no **Environment do backend**, salve e faca deploy. Aguarde no log a mensagem
+`Administrador inicial criado`. A senha inicial deve ter pelo menos 8 caracteres,
+letras e numeros. Variaveis ausentes ou invalidas nao impedem o backend de iniciar;
+configuracoes invalidas geram um aviso e a conta nao e criada.
+Depois da criacao, `ADMIN_PASSWORD` pode ser removida do Environment; mantenha o
+email configurado para que a autenticacao reconheca o super-admin.
+
 ### 2) Frontend (porta 5173)
 
 Em outro terminal:
@@ -92,9 +107,30 @@ Todas as rotas de dados exigem header `Authorization: Bearer <token>`.
 
 ## Produção
 
+No servico do frontend (Render/Vercel/Netlify), configure a variavel de ambiente
+`VITE_API_URL` como `https://erp-construtora-back.onrender.com` e faca um novo deploy para
+reconstruir o frontend. Em dominios `onrender.com`, o frontend tambem identifica esse
+backend automaticamente quando a variavel nao esta definida.
+
 No servico do backend no Render, configure `CORS_ORIGIN` com a URL exata do frontend
 (por exemplo, `https://erp-construtora-pog1.onrender.com`). O backend tambem inclui esse
-dominio na lista padrao; valores adicionais em `CORS_ORIGIN` sao aceitos.
+dominio na lista padrao; valores adicionais em `CORS_ORIGIN` sao aceitos. Configure tambem
+`FRONTEND_URL` com a URL do frontend para que links de recuperacao de senha apontem para a
+aplicacao publicada.
+
+`ADMIN_EMAIL` e `ADMIN_PASSWORD` sao usados pelo seed para criar um administrador quando
+essa conta ainda nao existe; alterar as variaveis nao redefine a senha de uma conta
+existente. Para redefinir a senha de uma conta admin existente, configure temporariamente
+`MONGO_URI`, `ADMIN_EMAIL` e `ADMIN_NEW_PASSWORD` no ambiente do backend e execute no shell
+do servico:
+
+```bash
+node scripts/reset-admin.js
+```
+
+O script exige que a conta exista com papel de administrador, revoga todas as sessoes e
+exige a troca da senha no proximo login. Remova `ADMIN_NEW_PASSWORD` do ambiente apos a
+operacao; nao grave senhas ou URLs de conexao no repositorio.
 
 Configure `JWT_SECRET` no ambiente do backend com um valor aleatorio de pelo menos 32
 caracteres. Para rotaciona-lo, substitua o valor no Render e faca redeploy. Isso invalida

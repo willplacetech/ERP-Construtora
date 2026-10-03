@@ -7,6 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import connectDB from './config/db.js';
 import errorHandler from './middleware/errorHandler.js';
+import { bootstrapAdmin } from './services/bootstrapAdmin.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -158,6 +159,7 @@ app.use(errorHandler);
 
 async function iniciar() {
 	await connectDB();
+	await bootstrapAdmin();
 	const { criarAssistente } = await import('./services/assistente/index.js');
 	await criarAssistente();
 	const { iniciarScheduler } = await import('./services/assistente/scheduler.js');
