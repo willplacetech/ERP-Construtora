@@ -1,15 +1,30 @@
 import axios from 'axios';
 
-// frontend/src/api.js
+const renderBackendUrl = 'https://erp-construtora-back.onrender.com';
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
-const apiBaseUrl = configuredApiUrl
-  ? configuredApiUrl.replace(/\/$/, '').endsWith('/api')
-    ? configuredApiUrl.replace(/\/$/, '')
-    : `${configuredApiUrl.replace(/\/$/, '')}/api`
-  : '/api';
+
+const normalizeApiBaseUrl = (value) => {
+  if (!value) return value;
+  const withoutTrailingSlash = value.replace(/\/$/, '');
+  return withoutTrailingSlash.endsWith('/api') ? withoutTrailingSlash : `${withoutTrailingSlash}/api`;
+};
+
+const resolveApiBaseUrl = () => {
+  if (configuredApiUrl) return normalizeApiBaseUrl(configuredApiUrl);
+
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return '/api';
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname.includes('onrender.com')) {
+    return `${renderBackendUrl}/api`;
+  }
+
+  return '/api';
+};
 
 const api = axios.create({
-  baseURL: apiBaseUrl
+  baseURL: resolveApiBaseUrl()
 });
 
 // Injeta token JWT em toda requisicao
