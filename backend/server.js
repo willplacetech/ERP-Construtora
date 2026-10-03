@@ -68,8 +68,8 @@ if (
 
 const app = express();
 const defaultOrigins = [
-	'https://erp-construtora-1.onrender.com',
-	'https://erp-construtora-site.onrender.com',
+	'https://erp-construtora-back.onrender.com',
+	'https://erp-construtora-pog1.onrender.com',
 	'http://localhost:5173'
 ];
 const configuredOrigins = (process.env.CORS_ORIGIN || '')
@@ -80,12 +80,12 @@ const origins = [...new Set([...defaultOrigins, ...configuredOrigins])];
 app.use(helmet({
 	contentSecurityPolicy: {
 		directives: {
-			defaultSrc: ["'self'", 'https://erp-construtora-1.onrender.com'],
+			defaultSrc: ["'self'", 'https://erp-construtora-back.onrender.com'],
 			scriptSrc: ["'self'"],
 			styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
 			fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
 			imgSrc: ["'self'", 'data:'],
-			connectSrc: ["'self'", 'https://erp-construtora-1.onrender.com'],
+			connectSrc: ["'self'", 'https://erp-construtora-back.onrender.com'],
 			frameAncestors: ["'none'"]
 		}
 	},

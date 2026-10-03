@@ -93,7 +93,7 @@ Todas as rotas de dados exigem header `Authorization: Bearer <token>`.
 ## Produção
 
 No servico do backend no Render, configure `CORS_ORIGIN` com a URL exata do frontend
-(por exemplo, `https://erp-construtora-1.onrender.com`). O backend tambem inclui esse
+(por exemplo, `https://erp-construtora-pog1.onrender.com`). O backend tambem inclui esse
 dominio na lista padrao; valores adicionais em `CORS_ORIGIN` sao aceitos.
 
 Configure `JWT_SECRET` no ambiente do backend com um valor aleatorio de pelo menos 32
