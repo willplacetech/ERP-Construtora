@@ -1,5 +1,8 @@
 import axios from 'axios';
 
+export const isPublicAuthRequest = (url = '') =>
+  /(?:^|\/)auth\/(?:login|esqueci-senha|reset-senha)(?:[/?#]|$)/.test(url);
+
 const renderBackendUrl = 'https://erp-construtora-back.onrender.com';
 const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
 
@@ -37,10 +40,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && !isPublicAuthRequest(err.config?.url)) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
     if (import.meta.env.DEV) {
       console.error('[API Error]', err.config?.url, err.response?.status, err.response?.statusText, err.message);
