@@ -1,6 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import { protect } from '../middleware/auth.js';
+import Contrato from '../models/Contrato.js';
 import DocumentoJuridico from '../models/DocumentoJuridico.js';
 import VersaoDocumentoJuridico from '../models/VersaoDocumentoJuridico.js';
 import AlertaJuridico from '../models/AlertaJuridico.js';
@@ -12,6 +13,11 @@ import {
   createJuridicoDocumentDraft,
   getJuridicoCompetence
 } from '../services/juridico/documents.js';
+import {
+  appendDeadlineEvent,
+  confirmContractDeadlineBase,
+  getContractDeadline
+} from '../services/juridico/deadlines.js';
 
 const router = express.Router();
 router.use(protect);
@@ -38,6 +44,10 @@ function obraScope(req) {
 function canAccessObra(req, obraId) {
   return req.user.obras === null
     || req.user.obras.some((id) => String(id) === String(obraId));
+}
+
+function contratoScope(req) {
+  return req.user.obras === null ? {} : { obra: { $in: req.user.obras } };
 }
 
 function combineFilters(...filters) {
@@ -234,6 +244,70 @@ router.post('/documentos/:id/arquivar', requireJuridicoPermission('alterar'), as
       reason: req.body.motivo
     });
     return res.json(result);
+  } catch (err) { return next(err); }
+});
+
+router.get('/contratos/:contratoId/prazos', requireJuridicoPermission('visualizar'), async (req, res, next) => {
+  try {
+    if (!validId(req.params.contratoId)) {
+      return res.status(400).json({ error: 'Identificador de contrato invalido' });
+    }
+    const contrato = await Contrato.findOne(combineFilters(
+      { _id: req.params.contratoId },
+      contratoScope(req)
+    )).select('_id');
+    if (!contrato) return res.status(404).json({ error: 'Contrato nao encontrado' });
+    const prazo = await getContractDeadline(contrato._id);
+    const alertaD40 = prazo.dueDate
+      ? new Date(prazo.dueDate.getTime() - (40 * 24 * 60 * 60 * 1000))
+      : null;
+    return res.json({ prazo: { ...prazo, alertaD40 } });
+  } catch (err) { return next(err); }
+});
+
+router.post('/contratos/:contratoId/prazo-base', requireJuridicoPermission('confirmar'), async (req, res, next) => {
+  try {
+    if (!validId(req.params.contratoId)) {
+      return res.status(400).json({ error: 'Identificador de contrato invalido' });
+    }
+    const contrato = await Contrato.findOne(combineFilters(
+      { _id: req.params.contratoId },
+      contratoScope(req)
+    )).select('_id');
+    if (!contrato) return res.status(404).json({ error: 'Contrato nao encontrado' });
+    const prazo = await confirmContractDeadlineBase({
+      actorId: req.user.id,
+      contractId: contrato._id,
+      baseDate: req.body.dataBase,
+      baseDuration: req.body.duracao,
+      countingRule: req.body.regraContagem,
+      confirmedEndDate: req.body.dataFimConfirmada
+    });
+    return res.status(201).json({ prazo });
+  } catch (err) { return next(err); }
+});
+
+router.post('/contratos/:contratoId/eventos-prazo', requireJuridicoPermission('confirmar'), async (req, res, next) => {
+  try {
+    if (!validId(req.params.contratoId)) {
+      return res.status(400).json({ error: 'Identificador de contrato invalido' });
+    }
+    const contrato = await Contrato.findOne(combineFilters(
+      { _id: req.params.contratoId },
+      contratoScope(req)
+    )).select('_id');
+    if (!contrato) return res.status(404).json({ error: 'Contrato nao encontrado' });
+    const prazo = await appendDeadlineEvent({
+      actorId: req.user.id,
+      contractId: contrato._id,
+      sourceDocumentId: req.body.documentoOrigemId,
+      type: req.body.tipo,
+      effectiveDate: req.body.dataEfetiva,
+      duration: req.body.duracao,
+      countingRule: req.body.regraContagem,
+      source: req.body.fonte
+    });
+    return res.status(201).json({ prazo });
   } catch (err) { return next(err); }
 });
 

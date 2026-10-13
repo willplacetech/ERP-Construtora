@@ -139,15 +139,17 @@
 **Interfaces:**
 - `calculateContractDeadline({ baseDate, baseDuration, countingRule, events })` returns `{ dueDate, explanation }`; accepted counting rules are explicitly validated and no default day-count convention is inferred.
 - Contract base duration is stored as `{ value, unit }`, where `unit` is `dias_corridos` or `meses`; an existing/derived deadline may alternatively be stored as an explicitly confirmed `dataFimConfirmada`. `dias_uteis` is rejected until a holiday/calendar source is configured and verified.
+- The base duration, extensions, and suspension durations are explicitly confirmed quantities. A suspension does not infer inclusive/exclusive day counts from dates; a `reinicio` resets the deadline from its effective date plus the explicitly confirmed remaining duration.
 - `appendDeadlineEvent({ actorId, contractId, sourceDocumentId, type, effectiveDate, duration, unit, countingRule, source })` verifies tenant/obra access, confirms the user supplied the applicable counting rule, persists an immutable event and audit record, then recalculates the current projection.
+- `confirmContractDeadlineBase({ actorId, contractId, baseDate?, baseDuration?, countingRule?, confirmedEndDate? })` records either an explicitly counted tenant-scoped baseline or an explicitly confirmed final date before events can be appended.
 - Reuse existing `Contrato` records; do not create financial installments or mutate financial effects as a side effect of a legal deadline event.
 
-- [ ] **Step 1: Write failing tests** named `requiresExplicitCountingRule`, `rejectsUnsupportedBusinessDayCalendar`, `recalculatesExtensionSuspensionAndRestart`, `keepsPriorEventsAndExplanation`, `rejectsForeignTenantContract`, and `handlesLeapYearAndMonthEnd`.
-- [ ] **Step 2: Run `node --test backend/services/juridico/deadlines.test.js`.** Expected: FAIL on missing calculator/event service.
-- [ ] **Step 3: Implement a pure deterministic calculation helper and append-only event model.** Support explicitly confirmed calendar days and months; reject weekdays-only calculations that lack a holiday source, and return each source event in the explanation.
-- [ ] **Step 4: Implement event append and projection update with one audit entry; reject unsupported event combinations or invalid dates instead of silently coercing them.**
-- [ ] **Step 5: Expose authorized read/create endpoints for contract deadline events and calculation explanation; derive D-40 candidate from the confirmed current due date.**
-- [ ] **Step 6: Run focused tests.** Expected: event ordering and repeat calculation are deterministic; no change to existing contract installment routes.
+- [x] **Step 1: Write failing tests** named `requiresExplicitCountingRule`, `rejectsUnsupportedBusinessDayCalendar`, `recalculatesExtensionSuspensionAndRestart`, `keepsPriorEventsAndExplanation`, `rejectsForeignTenantContract`, and `handlesLeapYearAndMonthEnd`.
+- [x] **Step 2: Run `node --test backend/services/juridico/deadlines.test.js`.** Expected: FAIL on missing calculator/event service.
+- [x] **Step 3: Implement a pure deterministic calculation helper and append-only event model.** Support explicitly confirmed calendar days and months; reject weekdays-only calculations that lack a holiday source, and return each source event in the explanation.
+- [x] **Step 4: Implement event append and projection update with one audit entry; reject unsupported event combinations or invalid dates instead of silently coercing them.**
+- [x] **Step 5: Expose authorized read/create endpoints for contract deadline events and calculation explanation; derive D-40 candidate from the confirmed current due date.**
+- [x] **Step 6: Run focused tests.** Expected: event ordering and repeat calculation are deterministic; no change to existing contract installment routes.
 - [ ] **Step 7: Commit** with message `feat: add auditable legal deadline events`.
 
 ### Task 4: Add linked communications and idempotent internal alerts
@@ -192,7 +194,7 @@
   - `GET|POST /tipos-documento`; `PATCH /tipos-documento/:id`; `POST /tipos-documento/:id/arquivar`.
   - `GET /documentos?entidadeLegalId&obraId&tipoDocumentoId&competencia&status&search`; `POST /documentos` creates a pending draft; `GET /documentos/:id`; `POST /documentos/:id/versoes` creates a pending revision; `GET /documentos/:id/versoes`; `POST /documentos/:id/versoes/:versaoId/confirmar`; `POST /documentos/:id/arquivar` with `{ motivo }`.
   - `GET /competencias/:competencia?entidadeLegalId&obraId`, where `competencia` must match `AAAA-MM`.
-  - `GET /obras`; `GET /contratos/:contratoId/prazos`; `POST /contratos/:contratoId/eventos-prazo`.
+  - `GET /obras`; `GET /contratos/:contratoId/prazos`; `POST /contratos/:contratoId/prazo-base`; `POST /contratos/:contratoId/eventos-prazo`.
   - `GET|POST /comunicacoes`; `GET /comunicacoes/:id`; `PATCH /comunicacoes/:id`; `POST /comunicacoes/:id/respostas`.
   - `GET /alertas`; `GET /alertas/:id`; `PATCH /alertas/:id` with an allowed status and required reason for cancellation.
   - `GET /dashboard`; `POST /alertas/verificar` restricted to `administrar` for homologation.
