@@ -60,6 +60,26 @@ export class MongoGridFSAdapter extends StorageService {
     };
   }
 
+  async obterMetadados(arquivoId, { empresaId } = {}) {
+    if (!ObjectId.isValid(arquivoId)) {
+      const error = new Error('arquivo_id_invalido');
+      error.status = 400;
+      throw error;
+    }
+    const id = new ObjectId(arquivoId);
+    const query = { _id: id };
+    if (empresaId) query['metadata.empresa'] = String(empresaId);
+    const file = await this._bucket().find(query).next();
+    if (!file) throw new Error('arquivo_nao_encontrado');
+    return {
+      arquivoId: file._id.toString(),
+      nome: file.filename,
+      mimeType: file.contentType,
+      tamanho: file.length,
+      hashSha256: file.metadata?.hashSha256
+    };
+  }
+
   async remover(arquivoId, { empresaId } = {}) {
     if (!ObjectId.isValid(arquivoId)) {
       const error = new Error('arquivo_id_invalido');

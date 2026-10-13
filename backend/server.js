@@ -46,6 +46,7 @@ import interacaoIARoutes from './routes/interacaoIA.js';
 import arquivoDocumentoRoutes from './routes/arquivoDocumento.js';
 import whatsappRoutes from './routes/whatsapp.js';
 import mongoose from 'mongoose';
+import { startJuridicoScheduler, stopJuridicoScheduler } from './services/juridico/scheduler.js';
 
 dotenv.config();
 
@@ -150,6 +151,9 @@ app.get('/healthz', (req, res) => {
 app.get('/', (req, res) => res.json({ ok: true, api: 'Sienge-MERN essencial', versao: '1.0.0' }));
 
 const PORT = process.env.PORT || 5000;
+let httpServer;
+let shutdownPromise;
+let stopAssistantScheduler = () => {};
 app.use((req, res, next) => {
 	const err = new Error('Nao encontrado');
 	err.status = 404;
@@ -162,12 +166,39 @@ async function iniciar() {
 	await bootstrapAdmin();
 	const { criarAssistente } = await import('./services/assistente/index.js');
 	await criarAssistente();
-	const { iniciarScheduler } = await import('./services/assistente/scheduler.js');
-	iniciarScheduler();
-	app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
+	const assistantScheduler = await import('./services/assistente/scheduler.js');
+	assistantScheduler.iniciarScheduler();
+	stopAssistantScheduler = assistantScheduler.pararScheduler;
+	startJuridicoScheduler();
+	httpServer = app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
 }
 
 iniciar().catch((err) => {
 	console.error(`Falha ao iniciar o servidor: ${err.message}`);
 	process.exit(1);
 });
+
+async function shutdown(signal) {
+	if (shutdownPromise) return shutdownPromise;
+	shutdownPromise = (async () => {
+		console.log(`Encerrando servidor (${signal})...`);
+		stopJuridicoScheduler();
+		stopAssistantScheduler();
+		if (httpServer) {
+			await new Promise((resolve, reject) => {
+				httpServer.close((error) => (error ? reject(error) : resolve()));
+			});
+		}
+		await mongoose.disconnect();
+	})();
+	return shutdownPromise;
+}
+
+for (const signal of ['SIGINT', 'SIGTERM']) {
+	process.once(signal, () => {
+		shutdown(signal).catch((error) => {
+			console.error(`Falha ao encerrar servidor: ${error.message}`);
+			process.exitCode = 1;
+		});
+	});
+}

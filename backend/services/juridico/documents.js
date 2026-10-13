@@ -5,6 +5,7 @@ import EntidadeLegal from '../../models/EntidadeLegal.js';
 import Obra from '../../models/Obra.js';
 import TipoDocumentoJuridico from '../../models/TipoDocumentoJuridico.js';
 import VersaoDocumentoJuridico from '../../models/VersaoDocumentoJuridico.js';
+import Oficio from '../../models/Oficio.js';
 import { currentTenant } from '../../middleware/tenantContext.js';
 import { services } from '../container.js';
 import { writeJuridicoAudit } from './audit.js';
@@ -312,7 +313,47 @@ export async function archiveJuridicoDocument({ actorId, documentId, reason }) {
   });
 }
 
+async function getJuridicoEvidenceWorkReferences(id) {
+  const [versions, communications] = await Promise.all([
+    VersaoDocumentoJuridico.find({ arquivoId: id }).select('documentoJuridico'),
+    Oficio.find({ 'arquivos.arquivoId': id }).select('obra')
+  ]);
+  const documents = versions.length
+    ? await DocumentoJuridico.find({
+      _id: { $in: versions.map((version) => version.documentoJuridico) }
+    }).select('obra')
+    : [];
+  return {
+    hasEvidence: versions.length > 0 || communications.length > 0,
+    workReferences: [
+      ...documents.map((document) => document.obra),
+      ...communications.map((communication) => communication.obra)
+    ]
+  };
+}
+
 export async function isJuridicoEvidenceFile(fileId) {
   const id = requireObjectId(fileId, 'Arquivo');
-  return Boolean(await VersaoDocumentoJuridico.exists({ arquivoId: id }));
+  const { hasEvidence } = await getJuridicoEvidenceWorkReferences(id);
+  return hasEvidence;
+}
+
+export async function canAccessJuridicoEvidenceFile(fileId, permittedWorkIds) {
+  const id = requireObjectId(fileId, 'Arquivo');
+  const { workReferences } = await getJuridicoEvidenceWorkReferences(id);
+  if (!workReferences.length) return false;
+  if (permittedWorkIds === null) return true;
+  const permitted = new Set(permittedWorkIds.map((workId) => String(workId)));
+  return workReferences.some((workId) => !workId || permitted.has(String(workId)));
+}
+
+export async function canAttachJuridicoEvidenceFileToWork(fileId, obraId) {
+  const id = requireObjectId(fileId, 'Arquivo');
+  const { hasEvidence, workReferences } = await getJuridicoEvidenceWorkReferences(id);
+  if (!hasEvidence) return true;
+  if (!workReferences.length) return false;
+  const targetWorkId = obraId ? String(obraId) : null;
+  return workReferences.every((workId) => (
+    (workId ? String(workId) : null) === targetWorkId
+  ));
 }

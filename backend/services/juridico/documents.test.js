@@ -317,6 +317,14 @@ test('fileDeletionRejectsLegalEvidenceAndKeepsOrdinaryDeletion', async () => {
     senha: 'StrongPass123',
     role: 'usuario'
   }));
+  const scopedUser = await runWithTenant(owner.context, () => User.create({
+    nome: 'Usuario sem acesso a obra',
+    email: 'sem-acesso-obra@example.com',
+    senha: 'StrongPass123',
+    role: 'usuario',
+    permissoesJuridico: ['baixar'],
+    obras: []
+  }));
 
   const app = express();
   app.use('/api/arquivos', arquivosRoutes);
@@ -334,6 +342,10 @@ test('fileDeletionRejectsLegalEvidenceAndKeepsOrdinaryDeletion', async () => {
     id: regularUser._id.toString(),
     tokenVersion: regularUser.tokenVersion || 0
   }, process.env.JWT_SECRET);
+  const scopedToken = jwt.sign({
+    id: scopedUser._id.toString(),
+    tokenVersion: scopedUser.tokenVersion || 0
+  }, process.env.JWT_SECRET);
 
   try {
     const downloadResponse = await fetch(
@@ -341,6 +353,12 @@ test('fileDeletionRejectsLegalEvidenceAndKeepsOrdinaryDeletion', async () => {
       { headers: { Authorization: `Bearer ${regularToken}` } }
     );
     assert.equal(downloadResponse.status, 403);
+
+    const outOfScopeDownloadResponse = await fetch(
+      `http://127.0.0.1:${address.port}/api/arquivos/${legalFile.arquivoId}/download`,
+      { headers: { Authorization: `Bearer ${scopedToken}` } }
+    );
+    assert.equal(outOfScopeDownloadResponse.status, 404);
 
     const legalResponse = await fetch(
       `http://127.0.0.1:${address.port}/api/arquivos/${legalFile.arquivoId}`,

@@ -18,6 +18,11 @@ import {
   confirmContractDeadlineBase,
   getContractDeadline
 } from '../services/juridico/deadlines.js';
+import {
+  confirmCommunicationResponseDeadline,
+  createJuridicoCommunication,
+  createJuridicoCommunicationReply
+} from '../services/juridico/communications.js';
 
 const router = express.Router();
 router.use(protect);
@@ -308,6 +313,57 @@ router.post('/contratos/:contratoId/eventos-prazo', requireJuridicoPermission('c
       source: req.body.fonte
     });
     return res.status(201).json({ prazo });
+  } catch (err) { return next(err); }
+});
+
+router.post('/comunicacoes', requireJuridicoPermission('cadastrar'), async (req, res, next) => {
+  try {
+    if (req.body.obraId && !validId(req.body.obraId)) {
+      return res.status(400).json({ error: 'Identificador de obra invalido' });
+    }
+    if (req.body.obraId && !canAccessObra(req, req.body.obraId)) {
+      return res.status(404).json({ error: 'Obra nao encontrada' });
+    }
+    const comunicacao = await createJuridicoCommunication({
+      ...req.body,
+      actorId: req.user.id
+    });
+    return res.status(201).json({ comunicacao });
+  } catch (err) { return next(err); }
+});
+
+router.post('/comunicacoes/:id/respostas', requireJuridicoPermission('cadastrar'), async (req, res, next) => {
+  try {
+    if (!validId(req.params.id)) return res.status(400).json({ error: 'Identificador invalido' });
+    const original = await Oficio.findOne(combineFilters(
+      { _id: req.params.id },
+      obraScope(req)
+    )).select('_id');
+    if (!original) return res.status(404).json({ error: 'Comunicacao nao encontrada' });
+    const resposta = await createJuridicoCommunicationReply({
+      ...req.body,
+      actorId: req.user.id,
+      communicationId: original._id,
+    });
+    return res.status(201).json({ comunicacao: resposta });
+  } catch (err) { return next(err); }
+});
+
+router.post('/comunicacoes/:id/prazo-resposta', requireJuridicoPermission('confirmar'), async (req, res, next) => {
+  try {
+    if (!validId(req.params.id)) return res.status(400).json({ error: 'Identificador invalido' });
+    const original = await Oficio.findOne(combineFilters(
+      { _id: req.params.id },
+      obraScope(req)
+    )).select('_id');
+    if (!original) return res.status(404).json({ error: 'Comunicacao nao encontrada' });
+    const comunicacao = await confirmCommunicationResponseDeadline({
+      actorId: req.user.id,
+      communicationId: original._id,
+      dueDate: req.body.prazoResposta,
+      countingRule: req.body.regraContagemPrazo
+    });
+    return res.json({ comunicacao });
   } catch (err) { return next(err); }
 });
 

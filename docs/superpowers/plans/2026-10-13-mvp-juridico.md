@@ -92,13 +92,13 @@
 - Legal models use the existing `tenantPlugin`; never accept `empresa` from an untrusted user payload as tenant authority.
 - Integration tests use `MongoMemoryReplSet` from the existing `mongodb-memory-server` dependency so transactions and tenant isolation are exercised without touching a production database.
 
-- [ ] **Step 1: Write failing tests** named `deniesUnlistedPermission`, `allowsOnlyExplicitGrantedPermission`, `rejectsUnknownPermission`, `rejectsCrossTenantLegalEntityReference`, and `auditWriteFailureRejects`.
-- [ ] **Step 2: Run the focused backend tests** with `MongoMemoryReplSet`: `node --test backend/services/juridico/permissions.test.js backend/services/juridico/audit.test.js`; expected: FAIL on the missing Legal models/helpers.
-- [ ] **Step 3: Implement tenant-scoped legal entity/type schemas, explicit grants, permission helper, append-only audit writer, and the `DocumentoJuridico.entidadeLegal` reference.** Preserve the existing `admin`/`usuario` roles and prevent update/delete access to audit records.
-- [ ] **Step 4: Add `permissoesJuridico: string[]` to the User schema with default `[]` and allowed values `visualizar`, `cadastrar`, `alterar`, `baixar`, `confirmar`, and `administrar`.** Include the field in login, `/auth/me`, password-change responses, authenticated `req.user`, and admin user create/update/list responses.
-- [ ] **Step 5: Add controls to `Usuarios.jsx` and allowlisted validation in `/api/usuarios` for granting/revoking those exact values; new regular users receive `[]`, and super-admin-only user protections remain unchanged.**
-- [ ] **Step 6: Run `npm --prefix backend test`, `npm --prefix frontend test -- src/navigation.test.jsx`, and focused permission/audit tests.** Expected: all selected tests pass; cross-tenant references fail closed and ungranted users receive no Legal permission.
-- [ ] **Step 7: Commit** with message `feat: add legal tenant permissions and audit`.
+- [x] **Step 1: Write failing tests** named `deniesUnlistedPermission`, `allowsOnlyExplicitGrantedPermission`, `rejectsUnknownPermission`, `rejectsCrossTenantLegalEntityReference`, and `auditWriteFailureRejects`.
+- [x] **Step 2: Run the focused backend tests** with `MongoMemoryReplSet`: `node --test backend/services/juridico/permissions.test.js backend/services/juridico/audit.test.js`; expected: FAIL on the missing Legal models/helpers.
+- [x] **Step 3: Implement tenant-scoped legal entity/type schemas, explicit grants, permission helper, append-only audit writer, and the `DocumentoJuridico.entidadeLegal` reference.** Preserve the existing `admin`/`usuario` roles and prevent update/delete access to audit records.
+- [x] **Step 4: Add `permissoesJuridico: string[]` to the User schema with default `[]` and allowed values `visualizar`, `cadastrar`, `alterar`, `baixar`, `confirmar`, and `administrar`.** Include the field in login, `/auth/me`, password-change responses, authenticated `req.user`, and admin user create/update/list responses.
+- [x] **Step 5: Add controls to `Usuarios.jsx` and allowlisted validation in `/api/usuarios` for granting/revoking those exact values; new regular users receive `[]`, and super-admin-only user protections remain unchanged.**
+- [x] **Step 6: Run `npm --prefix backend test`, `npm --prefix frontend test -- src/navigation.test.jsx`, and focused permission/audit tests.** Expected: all selected tests pass; cross-tenant references fail closed and ungranted users receive no Legal permission.
+- [x] **Step 7: Commit** with message `feat: add legal tenant permissions and audit`.
 
 ### Task 2: Implement immutable document versions and monthly competence
 
@@ -120,12 +120,12 @@
 - [x] **Step 1: Write failing tests** named `doesNotPublishUnconfirmedDraft`, `usesLastCalendarDayAsCompetenceCutoff`, `handlesEffectiveDateAndExpiryAtMonthBoundary`, `preservesOldVersionWhenCreatingNewVersion`, `doesNotChangeCurrentVersionWhenAuditFails`, `returnsSameFileReferenceAcrossCompetences`, `reconstructsHistoricalCompetenceAfterReplacement`, `rejectsInvalidCompetence`, `rejectsCrossTenantFileAndObra`, and `archivesWithoutDeletingFile`.
 - [x] **Step 2: Run `node --test backend/services/juridico/documents.test.js`.** Expected: FAIL on missing document service/model behavior.
 - [x] **Step 3: Implement logical document identity and a separate tenant-scoped version schema with unconfirmed drafts, immutable confirmed versions, and explicit effective dates.** Compute the competence view from confirmed version history so retroactive replacements are reconstructed deterministically without duplicating blobs or persisting stale snapshots.
-- [x] **Step 4: Scope GridFS retrieval by `{ _id: arquivoId, 'metadata.empresa': empresaId }`; update the protected download route to pass the authenticated tenant and return the same not-found response for absent and foreign-tenant files.**
+- [x] **Step 4: Scope GridFS retrieval by `{ _id: arquivoId, 'metadata.empresa': empresaId }`; update the protected download route to pass the authenticated tenant, require Legal download permission, enforce referenced-work scope, and return the same not-found response for absent and foreign-tenant files.**
 - [x] **Step 5: Make `/api/arquivos/:id` physical deletion reject `409` while any Legal version references the file.** Preserve current behavior for files that are not Legal evidence and test both cases.
 - [x] **Step 6: Implement document service writes so draft creation, confirmation, and audit are transactionally consistent where supported; on failure, roll back metadata and report an error. Because files are uploaded through a separate generic endpoint, preserve an unreferenced blob unless the service can prove it created that blob and no other record owns it.**
 - [x] **Step 7: Add route-level authorization for document list/detail/create/version/archive and competence reads; validate query IDs and return `404` for missing or out-of-tenant records.**
 - [x] **Step 8: Run `node --test backend/services/juridico/documents.test.js` and focused storage/API tests.** Expected: all pass, including fixed September/October 2026 views at month-end, version/expiry month-boundary cases, same file ID across competence references, tenant-scoped download, and no physical Legal evidence deletion.
-- [ ] **Step 9: Commit** with message `feat: add versioned legal documents and competence`.
+- [x] **Step 9: Commit** with message `feat: add versioned legal documents and competence`.
 
 ### Task 3: Calculate and retain explainable contract deadlines
 
@@ -150,7 +150,7 @@
 - [x] **Step 4: Implement event append and projection update with one audit entry; reject unsupported event combinations or invalid dates instead of silently coercing them.**
 - [x] **Step 5: Expose authorized read/create endpoints for contract deadline events and calculation explanation; derive D-40 candidate from the confirmed current due date.**
 - [x] **Step 6: Run focused tests.** Expected: event ordering and repeat calculation are deterministic; no change to existing contract installment routes.
-- [ ] **Step 7: Commit** with message `feat: add auditable legal deadline events`.
+- [x] **Step 7: Commit** with message `feat: add auditable legal deadline events`.
 
 ### Task 4: Add linked communications and idempotent internal alerts
 
@@ -169,12 +169,12 @@
 - Communication replies are separate `Oficio` records linked by `respostaDe`; the original communication is never overwritten to store the reply.
 - Scheduler exports `startJuridicoScheduler()` and `stopJuridicoScheduler()` and is safe to call more than once.
 
-- [ ] **Step 1: Write failing tests** named `createsOneAlertForRepeatedScan`, `createsOneAlertForConcurrentUpserts`, `doesNotReopenCompletedAlert`, `keepsCancelledOrSentAlertHistory`, `requiresConfirmedResponseDeadline`, `linksReplyWithoutReplacingOriginal`, and `schedulerStartsOnlyOnce`.
-- [ ] **Step 2: Run focused alert/scheduler tests.** Expected: FAIL on missing idempotency/state-transition behavior.
-- [ ] **Step 3: Implement source-linked internal alert schema, unique idempotency index, atomic upsert, and audited state transitions.** Never deliver external messages in this task.
-- [ ] **Step 4: Implement a scan with injected `now`, explicit tenant context, and logged errors; wire `startJuridicoScheduler()` once after `connectDB()` and `stopJuridicoScheduler()` during graceful shutdown.** Do not dispatch through the WhatsApp service.
-- [ ] **Step 5: Extend communication endpoints for responsible user, confirmed counting rule, and linked reply; verify the responsibility and file references belong to the same tenant.**
-- [ ] **Step 6: Run focused tests plus all backend tests.** Expected: repeated/concurrent scans do not duplicate or reopen alerts, scheduler tests do not wait on wall-clock time.
+- [x] **Step 1: Write failing tests** named `createsOneAlertForRepeatedScan`, `createsOneAlertForConcurrentUpserts`, `doesNotReopenCompletedAlert`, `keepsCancelledAlertHistory`, `requiresConfirmedResponseDeadline`, `linksReplyWithoutReplacingOriginal`, and `schedulerStartsOnlyOnce`.
+- [x] **Step 2: Run focused alert/scheduler tests.** Expected: FAIL on missing idempotency/state-transition behavior.
+- [x] **Step 3: Implement source-linked internal alert schema, unique idempotency index, atomic upsert, and audited state transitions.** Never deliver external messages in this task.
+- [x] **Step 4: Implement a scan with injected `now`, explicit tenant context, and logged errors; wire `startJuridicoScheduler()` once after `connectDB()` and `stopJuridicoScheduler()` during graceful shutdown.** Do not dispatch through the WhatsApp service.
+- [x] **Step 5: Extend communication endpoints for responsible user, confirmed counting rule, and linked reply; verify the responsibility and file references belong to the same tenant and work scope.**
+- [x] **Step 6: Run focused tests plus all backend tests.** Expected: repeated/concurrent scans do not duplicate or reopen alerts, scheduler tests do not wait on wall-clock time.
 - [ ] **Step 7: Commit** with message `feat: add idempotent legal alerts and communications`.
 
 ### Task 5: Integrate secured Legal API and preserve existing contracts
