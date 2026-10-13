@@ -7,6 +7,8 @@ const documentoSchema = new mongoose.Schema({
   validade: Date,
   dataEmissao: Date,
   arquivoId: String,
+  versao: { type: String, default: '1.0' },
+  versaoAnterior: { type: mongoose.Schema.Types.ObjectId },
   reciboAssinado: Boolean,
   observacoes: String
 }, { _id: true, _v: false });

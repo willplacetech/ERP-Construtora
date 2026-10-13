@@ -14,5 +14,9 @@
   "dependencies": {
     "@types/recharts": "^1.8.29",
     "recharts": "^3.10.1"
+  },
+  "devDependencies": {
+    "@types/pdf-parse": "^1.1.5",
+    "pdf-parse": "^1.1.1"
   }
 }
