@@ -1,14 +1,244 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { protect } from '../middleware/auth.js';
 import DocumentoJuridico from '../models/DocumentoJuridico.js';
+import VersaoDocumentoJuridico from '../models/VersaoDocumentoJuridico.js';
 import AlertaJuridico from '../models/AlertaJuridico.js';
 import Oficio from '../models/Oficio.js';
+import { hasJuridicoPermission } from '../services/juridico/permissions.js';
+import {
+  archiveJuridicoDocument,
+  confirmJuridicoDocumentVersion,
+  createJuridicoDocumentDraft,
+  getJuridicoCompetence
+} from '../services/juridico/documents.js';
 
 const router = express.Router();
 router.use(protect);
 
+function requireJuridicoPermission(permission) {
+  return (req, res, next) => {
+    if (!hasJuridicoPermission(req.user, permission)) {
+      return res.status(403).json({ error: 'Permissao juridica insuficiente' });
+    }
+    return next();
+  };
+}
+
+function obraScope(req) {
+  if (req.user.obras === null) return {};
+  return {
+    $or: [
+      { obra: { $exists: false } },
+      { obra: { $in: req.user.obras } }
+    ]
+  };
+}
+
+function canAccessObra(req, obraId) {
+  return req.user.obras === null
+    || req.user.obras.some((id) => String(id) === String(obraId));
+}
+
+function combineFilters(...filters) {
+  const nonEmpty = filters.filter((filter) => Object.keys(filter).length > 0);
+  return nonEmpty.length > 1 ? { $and: nonEmpty } : nonEmpty[0] || {};
+}
+
+function validId(value) {
+  return typeof value === 'string' && mongoose.isValidObjectId(value);
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+router.get('/documentos', requireJuridicoPermission('visualizar'), async (req, res, next) => {
+  try {
+    const { competencia, entidadeLegalId, obraId, tipoDocumentoId, search, status } = req.query;
+    if ([entidadeLegalId, obraId, tipoDocumentoId].some((id) => id && !validId(id))) {
+      return res.status(400).json({ error: 'Identificador invalido' });
+    }
+    if (obraId && !canAccessObra(req, obraId)) {
+      return res.status(404).json({ error: 'Documento nao encontrado' });
+    }
+    if (search !== undefined && (typeof search !== 'string' || search.length > 100)) {
+      return res.status(400).json({ error: 'Busca invalida' });
+    }
+
+    if (competencia) {
+      const documentos = await getJuridicoCompetence({
+        competence: competencia,
+        entityLegalId: entidadeLegalId,
+        obraId,
+        obraIds: req.user.obras === null ? undefined : req.user.obras
+      });
+      const resultado = status
+        ? documentos.filter((item) => item.status === status || item.document.status === status)
+        : documentos;
+      const termo = typeof search === 'string' ? search.toLowerCase() : '';
+      const filtrados = termo
+        ? resultado.filter(({ document, version }) => (
+          `${document.subcategoria || ''} ${version.nomeOriginal || ''}`.toLowerCase().includes(termo)
+        ))
+        : resultado;
+      return res.json({ documentos: filtrados });
+    }
+
+    const filtro = {};
+    if (entidadeLegalId) filtro.entidadeLegal = entidadeLegalId;
+    if (obraId) filtro.obra = obraId;
+    if (tipoDocumentoId) filtro.tipoDocumento = tipoDocumentoId;
+    if (status) filtro.status = status;
+    if (search) {
+      const expression = new RegExp(escapeRegex(search), 'i');
+      filtro.$or = [
+        { nomeOriginal: expression },
+        { subcategoria: expression }
+      ];
+    }
+    const documentos = await DocumentoJuridico.find(combineFilters(filtro, obraScope(req)))
+      .populate('versaoAtual')
+      .sort({ updatedAt: -1, _id: -1 });
+    return res.json({ documentos });
+  } catch (err) { return next(err); }
+});
+
+router.get('/documentos/:id', requireJuridicoPermission('visualizar'), async (req, res, next) => {
+  try {
+    if (!validId(req.params.id)) return res.status(400).json({ error: 'Identificador invalido' });
+    const documento = await DocumentoJuridico.findOne(
+      combineFilters({ _id: req.params.id }, obraScope(req))
+    ).populate('versaoAtual');
+    if (!documento) return res.status(404).json({ error: 'Documento nao encontrado' });
+    return res.json({ documento });
+  } catch (err) { return next(err); }
+});
+
+router.get('/documentos/:id/versoes', requireJuridicoPermission('visualizar'), async (req, res, next) => {
+  try {
+    if (!validId(req.params.id)) return res.status(400).json({ error: 'Identificador invalido' });
+    const documento = await DocumentoJuridico.findOne(
+      combineFilters({ _id: req.params.id }, obraScope(req))
+    ).select('_id');
+    if (!documento) return res.status(404).json({ error: 'Documento nao encontrado' });
+    const versoes = await VersaoDocumentoJuridico.find({ documentoJuridico: documento._id })
+      .sort({ numeroVersao: -1 });
+    return res.json({ versoes });
+  } catch (err) { return next(err); }
+});
+
+router.post('/documentos', requireJuridicoPermission('cadastrar'), async (req, res, next) => {
+  try {
+    const { entidadeLegalId, obraId, tipoDocumentoId, arquivoId, metadata } = req.body;
+    if (obraId && !validId(obraId)) {
+      return res.status(400).json({ error: 'Identificador de obra invalido' });
+    }
+    if (obraId && !canAccessObra(req, obraId)) {
+      return res.status(404).json({ error: 'Obra nao encontrada' });
+    }
+    const result = await createJuridicoDocumentDraft({
+      actorId: req.user.id,
+      entityLegalId: entidadeLegalId,
+      obraId,
+      tipoDocumentoId,
+      fileId: arquivoId,
+      metadata
+    });
+    return res.status(201).json(result);
+  } catch (err) { return next(err); }
+});
+
+router.post('/documentos/:id/versoes', requireJuridicoPermission('cadastrar'), async (req, res, next) => {
+  try {
+    if (!validId(req.params.id)) return res.status(400).json({ error: 'Identificador invalido' });
+    const documento = await DocumentoJuridico.findOne(
+      combineFilters({ _id: req.params.id }, obraScope(req))
+    );
+    if (!documento) return res.status(404).json({ error: 'Documento nao encontrado' });
+    const result = await createJuridicoDocumentDraft({
+      actorId: req.user.id,
+      entityLegalId: documento.entidadeLegal,
+      obraId: documento.obra,
+      tipoDocumentoId: documento.tipoDocumento,
+      fileId: req.body.arquivoId,
+      metadata: req.body.metadata,
+      documentId: documento._id
+    });
+    return res.status(201).json(result);
+  } catch (err) { return next(err); }
+});
+
+router.post('/documentos/:id/versoes/:versaoId/confirmar', requireJuridicoPermission('confirmar'), async (req, res, next) => {
+  try {
+    if (!validId(req.params.id) || !validId(req.params.versaoId)) {
+      return res.status(400).json({ error: 'Identificador invalido' });
+    }
+    const document = await DocumentoJuridico.findOne(
+      combineFilters({ _id: req.params.id }, obraScope(req))
+    ).select('_id');
+    if (!document) return res.status(404).json({ error: 'Rascunho nao encontrado' });
+    const version = await VersaoDocumentoJuridico.findOne({
+      _id: req.params.versaoId,
+      documentoJuridico: document._id
+    }).select('_id');
+    if (!version) return res.status(404).json({ error: 'Rascunho nao encontrado' });
+    const result = await confirmJuridicoDocumentVersion({
+      actorId: req.user.id,
+      draftId: version._id,
+      competence: req.body.competencia,
+      effectiveFrom: req.body.vigenteDesde,
+      metadata: req.body.metadata
+    });
+    return res.json(result);
+  } catch (err) { return next(err); }
+});
+
+router.get('/competencias/:competencia', requireJuridicoPermission('visualizar'), async (req, res, next) => {
+  try {
+    const { entidadeLegalId, obraId, status, search } = req.query;
+    if ([entidadeLegalId, obraId].some((id) => id && !validId(id))) {
+      return res.status(400).json({ error: 'Identificador invalido' });
+    }
+    if (obraId && !canAccessObra(req, obraId)) {
+      return res.status(404).json({ error: 'Documento nao encontrado' });
+    }
+    if (search !== undefined && (typeof search !== 'string' || search.length > 100)) {
+      return res.status(400).json({ error: 'Busca invalida' });
+    }
+    const documentos = await getJuridicoCompetence({
+      competence: req.params.competencia,
+      entityLegalId: entidadeLegalId,
+      obraId,
+      obraIds: req.user.obras === null ? undefined : req.user.obras
+    });
+    const termo = typeof search === 'string' ? search.toLowerCase() : '';
+    const resultado = documentos.filter(({ document, version, status: validity }) => (
+      (!status || status === validity || status === document.status)
+      && (!termo || `${document.subcategoria || ''} ${version.nomeOriginal || ''}`.toLowerCase().includes(termo))
+    ));
+    return res.json({ documentos: resultado });
+  } catch (err) { return next(err); }
+});
+
+router.post('/documentos/:id/arquivar', requireJuridicoPermission('alterar'), async (req, res, next) => {
+  try {
+    if (!validId(req.params.id)) return res.status(400).json({ error: 'Identificador invalido' });
+    const document = await DocumentoJuridico.findOne(
+      combineFilters({ _id: req.params.id }, obraScope(req))
+    ).select('_id');
+    if (!document) return res.status(404).json({ error: 'Documento nao encontrado' });
+    const result = await archiveJuridicoDocument({
+      actorId: req.user.id,
+      documentId: document._id,
+      reason: req.body.motivo
+    });
+    return res.json(result);
+  } catch (err) { return next(err); }
+});
+
 // DOCUMENTOS JURÍDICOS
-router.get('/documentos-juridicos', async (req, res, next) => {
+router.get('/documentos-juridicos', requireJuridicoPermission('visualizar'), async (req, res, next) => {
   try {
     const { empresa, obra, categoria, subcategoria, competencia, status, search } = req.query;
     const filtro = {};
@@ -34,7 +264,7 @@ router.get('/documentos-juridicos', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.get('/documentos-juridicos/:id', async (req, res, next) => {
+router.get('/documentos-juridicos/:id', requireJuridicoPermission('visualizar'), async (req, res, next) => {
   try {
     const documento = await DocumentoJuridico.findById(req.params.id)
       .populate('empresa', 'nome')
@@ -46,7 +276,7 @@ router.get('/documentos-juridicos/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/documentos-juridicos', async (req, res, next) => {
+router.post('/documentos-juridicos', requireJuridicoPermission('cadastrar'), async (req, res, next) => {
   try {
     const { empresa, obra, categoria, subcategoria, competencia, versao, nomeOriginal, arquivoId, dataEmissao, dataVencimento, observacao } = req.body;
     if (!empresa || !categoria || !subcategoria || !competencia || !versao || !nomeOriginal || !arquivoId) {
@@ -59,7 +289,7 @@ router.post('/documentos-juridicos', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.put('/documentos-juridicos/:id', async (req, res, next) => {
+router.put('/documentos-juridicos/:id', requireJuridicoPermission('alterar'), async (req, res, next) => {
   try {
     const { subcategoria, competencia, versao, nomeOriginal, arquivoId, dataEmissao, dataVencimento, status, observacao } = req.body;
     const documento = await DocumentoJuridico.findByIdAndUpdate(req.params.id, { subcategoria, competencia, versao, nomeOriginal, arquivoId, dataEmissao, dataVencimento, status, observacao }, { new: true, runValidators: true });
@@ -68,7 +298,7 @@ router.put('/documentos-juridicos/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.post('/documentos-juridicos/:id/nova-versao', async (req, res, next) => {
+router.post('/documentos-juridicos/:id/nova-versao', requireJuridicoPermission('cadastrar'), async (req, res, next) => {
   try {
     const { versao, nomeOriginal, arquivoId, dataEmissao, dataVencimento, observacao } = req.body;
     const docAtual = await DocumentoJuridico.findById(req.params.id);
@@ -94,7 +324,7 @@ router.post('/documentos-juridicos/:id/nova-versao', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-router.delete('/documentos-juridicos/:id', async (req, res, next) => {
+router.delete('/documentos-juridicos/:id', requireJuridicoPermission('alterar'), async (req, res, next) => {
   try {
     const documento = await DocumentoJuridico.findByIdAndDelete(req.params.id);
     if (!documento) return res.status(404).json({ error: 'Documento não encontrado' });

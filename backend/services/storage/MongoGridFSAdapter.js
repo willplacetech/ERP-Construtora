@@ -23,20 +23,28 @@ export class MongoGridFSAdapter extends StorageService {
         contentType: mimeType,
         metadata: { ...metadados, hashSha256, tamanho: buffer.length }
       });
-      uploadStream.once('finish', (file) => resolve({ arquivoId: file._id.toString(), hashSha256 }));
+      uploadStream.once('finish', () => resolve({ arquivoId: uploadStream.id.toString(), hashSha256 }));
       uploadStream.once('error', reject);
       uploadStream.end(buffer);
     });
   }
 
-  async obter(arquivoId) {
+  async obter(arquivoId, { empresaId } = {}) {
+    if (!ObjectId.isValid(arquivoId)) {
+      const error = new Error('arquivo_id_invalido');
+      error.status = 400;
+      throw error;
+    }
+    const id = new ObjectId(arquivoId);
     const bucket = this._bucket();
-    const file = await bucket.find({ _id: new ObjectId(arquivoId) }).next();
+    const query = { _id: id };
+    if (empresaId) query['metadata.empresa'] = String(empresaId);
+    const file = await bucket.find(query).next();
     if (!file) throw new Error('arquivo_nao_encontrado');
 
     const chunks = [];
     await new Promise((resolve, reject) => {
-      const stream = bucket.openDownloadStream(new ObjectId(arquivoId));
+      const stream = bucket.openDownloadStream(id);
       stream.on('data', (c) => chunks.push(c));
       stream.once('end', resolve);
       stream.once('error', reject);
@@ -52,7 +60,18 @@ export class MongoGridFSAdapter extends StorageService {
     };
   }
 
-  async remover(arquivoId) {
-    await this._bucket().delete(new ObjectId(arquivoId));
+  async remover(arquivoId, { empresaId } = {}) {
+    if (!ObjectId.isValid(arquivoId)) {
+      const error = new Error('arquivo_id_invalido');
+      error.status = 400;
+      throw error;
+    }
+    const id = new ObjectId(arquivoId);
+    const bucket = this._bucket();
+    const query = { _id: id };
+    if (empresaId) query['metadata.empresa'] = String(empresaId);
+    const file = await bucket.find(query).next();
+    if (!file) throw new Error('arquivo_nao_encontrado');
+    await bucket.delete(id);
   }
 }

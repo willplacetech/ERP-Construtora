@@ -1,7 +1,10 @@
 import express from 'express';
 import multer from 'multer';
+import mongoose from 'mongoose';
 import { services } from '../services/container.js';
 import { auth, escopoEmpresa } from '../middleware/auth.js';
+import { hasJuridicoPermission } from '../services/juridico/permissions.js';
+import { isJuridicoEvidenceFile } from '../services/juridico/documents.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -18,11 +21,11 @@ router.post(
       const { arquivoId, hashSha256 } = await services.storage.salvar(
         req.file.buffer,
         {
+          ...req.body,
           nome: req.file.originalname,
           mimeType: req.file.mimetype,
           empresa: req.user.empresa,
-          criadoPor: req.user.id,
-          ...req.body
+          criadoPor: req.user.id
         }
       );
       res.json({ arquivoId, hashSha256, tamanho: req.file.size });
@@ -39,7 +42,16 @@ router.get(
   escopoEmpresa,
   async (req, res, next) => {
     try {
-      const arq = await services.storage.obter(req.params.id);
+      if (!mongoose.isValidObjectId(req.params.id)) {
+        return res.status(400).json({ error: 'Identificador de arquivo invalido' });
+      }
+      if (
+        await isJuridicoEvidenceFile(req.params.id)
+        && !hasJuridicoPermission(req.user, 'baixar')
+      ) {
+        return res.status(403).json({ error: 'Sem permissao para baixar documentos juridicos' });
+      }
+      const arq = await services.storage.obter(req.params.id, { empresaId: req.user.empresa });
       res.setHeader('Content-Type', arq.mimeType);
       res.setHeader('Content-Disposition', `attachment; filename="${arq.nome}"`);
       res.send(arq.buffer);
@@ -59,9 +71,18 @@ router.delete(
   escopoEmpresa,
   async (req, res, next) => {
     try {
-      await services.storage.remover(req.params.id);
+      if (!mongoose.isValidObjectId(req.params.id)) {
+        return res.status(400).json({ error: 'Identificador de arquivo invalido' });
+      }
+      if (await isJuridicoEvidenceFile(req.params.id)) {
+        return res.status(409).json({ error: 'Arquivos juridicos nao podem ser removidos fisicamente' });
+      }
+      await services.storage.remover(req.params.id, { empresaId: req.user.empresa });
       res.json({ ok: true });
     } catch (err) {
+      if (err.message === 'arquivo_nao_encontrado') {
+        return res.status(404).json({ error: 'Arquivo nao encontrado' });
+      }
       next(err);
     }
   }
