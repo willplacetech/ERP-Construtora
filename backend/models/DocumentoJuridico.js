@@ -3,6 +3,7 @@ import tenantPlugin from './plugins/tenant.js';
 
 const documentoJuridicoSchema = new mongoose.Schema({
   empresa: { type: mongoose.Schema.Types.ObjectId, ref: 'Empresa', required: true, index: true },
+  entidadeLegal: { type: mongoose.Schema.Types.ObjectId, ref: 'EntidadeLegal', index: true },
   obra: { type: mongoose.Schema.Types.ObjectId, ref: 'Obra', index: true },
   categoria: { type: String, enum: ['juridica', 'tecnica', 'economica_financeira', 'fiscal_trabalhista', 'declaracoes'], required: true, index: true },
   subcategoria: { type: String, required: true, trim: true },

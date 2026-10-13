@@ -6,6 +6,7 @@ import { pick } from '../utils/fields.js';
 import { isValidEmail } from '../utils/security.js';
 import { sendInvitation } from '../services/invitations.js';
 import { randomBytes } from 'node:crypto';
+import { isJuridicoPermissionList } from '../services/juridico/permissions.js';
 
 const router = express.Router();
 router.use(protect);
@@ -19,10 +20,13 @@ router.get('/', adminOnly, async (req, res, next) => {
 
 router.post('/', adminOnly, async (req, res, next) => {
   try {
-    const { nome, email, role, ativo, obras } = req.body || {};
+    const { nome, email, role, ativo, obras, permissoesJuridico } = req.body || {};
     if (!nome || !email) return res.status(400).json({ error: 'Preencha nome e email' });
     const emailNormalizado = String(email).trim().toLowerCase();
     if (!isValidEmail(emailNormalizado)) return res.status(400).json({ error: 'Email invalido' });
+    if (permissoesJuridico !== undefined && !isJuridicoPermissionList(permissoesJuridico)) {
+      return res.status(400).json({ error: 'Permissoes juridicas invalidas' });
+    }
     if (ativo === false) return res.status(400).json({ error: 'Ative o usuario para enviar o convite por email' });
     const exists = await User.findOne({ email: emailNormalizado });
     if (exists) return res.status(400).json({ error: 'Email ja cadastrado' });
@@ -33,6 +37,7 @@ router.post('/', adminOnly, async (req, res, next) => {
       role: ['admin', 'usuario'].includes(role) ? role : 'usuario',
       ativo: ativo !== false,
       trocarSenha: true,
+      permissoesJuridico: permissoesJuridico || [],
       obras: Array.isArray(obras) ? obras : []
     });
     try {
@@ -48,6 +53,7 @@ router.post('/', adminOnly, async (req, res, next) => {
       role: user.role,
       ativo: user.ativo,
       trocarSenha: user.trocarSenha,
+      permissoesJuridico: user.permissoesJuridico,
       obras: user.obras,
       conviteEnviado: true
     });
@@ -85,7 +91,10 @@ router.put('/:id', adminOnly, async (req, res, next) => {
       return res.status(403).json({ error: 'Somente o super-administrador pode alterar esta conta' });
     }
 
-    const payload = pick(req.body || {}, ['nome', 'email', 'role', 'ativo', 'obras']);
+    const payload = pick(req.body || {}, ['nome', 'email', 'role', 'ativo', 'obras', 'permissoesJuridico']);
+    if (payload.permissoesJuridico !== undefined && !isJuridicoPermissionList(payload.permissoesJuridico)) {
+      return res.status(400).json({ error: 'Permissoes juridicas invalidas' });
+    }
     if (payload.nome) user.nome = String(payload.nome).trim();
     if (payload.email) {
       user.email = String(payload.email).trim().toLowerCase();
@@ -94,6 +103,7 @@ router.put('/:id', adminOnly, async (req, res, next) => {
     if (payload.role && ['admin', 'usuario'].includes(payload.role)) user.role = payload.role;
     if (typeof payload.ativo === 'boolean') user.ativo = payload.ativo;
     if (Array.isArray(payload.obras)) user.obras = payload.obras;
+    if (payload.permissoesJuridico !== undefined) user.permissoesJuridico = [...new Set(payload.permissoesJuridico)];
 
     await user.save();
     res.json({
@@ -103,6 +113,7 @@ router.put('/:id', adminOnly, async (req, res, next) => {
       role: user.role,
       ativo: user.ativo,
       trocarSenha: user.trocarSenha,
+      permissoesJuridico: user.permissoesJuridico,
       obras: user.obras
     });
   } catch (err) { next(err); }

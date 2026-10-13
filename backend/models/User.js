@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import { isValidEmail, passwordError } from '../utils/security.js';
 import tenantPlugin from './plugins/tenant.js';
+import { JURIDICO_PERMISSIONS } from '../services/juridico/permissions.js';
 
 const userSchema = new mongoose.Schema({
   nome: { type: String, required: true },
@@ -24,6 +25,10 @@ const userSchema = new mongoose.Schema({
   superAdmin: { type: Boolean, default: false },
   trocarSenha: { type: Boolean, default: false },
   tokenVersion: { type: Number, default: 0 },
+  permissoesJuridico: {
+    type: [{ type: String, enum: JURIDICO_PERMISSIONS }],
+    default: []
+  },
   obras: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Obra' }]
 }, { timestamps: true });
 

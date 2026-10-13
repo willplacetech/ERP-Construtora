@@ -20,7 +20,7 @@ export async function protect(req, res, next) {
     return res.status(401).json({ error: 'Token invalido ou expirado' });
   }
 
-   const user = await User.findById(decoded.id).select('_id nome email role ativo superAdmin trocarSenha tokenVersion empresa obras');
+   const user = await User.findById(decoded.id).select('_id nome email role ativo superAdmin trocarSenha tokenVersion empresa obras permissoesJuridico');
    if (!user || !user.ativo || user.tokenVersion !== (decoded.tokenVersion || 0)) {
      return res.status(401).json({ error: 'Token invalido ou usuario inativo' });
    }
@@ -45,7 +45,8 @@ export async function protect(req, res, next) {
      trocarSenha: user.trocarSenha,
      empresa: empresaId,
      superAdmin,
-     obras: obrasPermitidas
+     obras: obrasPermitidas,
+     permissoesJuridico: user.permissoesJuridico || []
    };
 
   if (user.trocarSenha && !['/me', '/logout', '/trocar-senha', '/esqueci-senha', '/reset-senha'].includes(req.path)) {

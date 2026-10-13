@@ -62,7 +62,8 @@ router.post('/login', async (req, res, next) => {
         nome: user.nome,
         email: user.email,
         role: user.role,
-        trocarSenha: user.trocarSenha
+        trocarSenha: user.trocarSenha,
+        permissoesJuridico: user.permissoesJuridico || []
       }
     });
   } catch (err) {
@@ -175,7 +176,8 @@ router.post('/trocar-senha', protect, async (req, res, next) => {
         nome: user.nome,
         email: user.email,
         role: user.role,
-        trocarSenha: user.trocarSenha
+        trocarSenha: user.trocarSenha,
+        permissoesJuridico: user.permissoesJuridico || []
       }
     });
   } catch (err) {

@@ -1,7 +1,15 @@
 import { useEffect, useState } from 'react';
 import api from '../api.js';
 
-const vazio = { nome: '', email: '', role: 'usuario', ativo: true, obras: [] };
+const permissoesJuridico = [
+  ['visualizar', 'Visualizar'],
+  ['cadastrar', 'Cadastrar'],
+  ['alterar', 'Alterar'],
+  ['baixar', 'Baixar documentos'],
+  ['confirmar', 'Confirmar documentos e prazos'],
+  ['administrar', 'Administrar configurações']
+];
+const vazio = { nome: '', email: '', role: 'usuario', ativo: true, obras: [], permissoesJuridico: [] };
 
 export default function Usuarios() {
   const [lista, setLista] = useState([]);
@@ -39,7 +47,8 @@ export default function Usuarios() {
     setEditando(u._id);
     setForm({
       nome: u.nome, email: u.email, role: u.role, ativo: u.ativo,
-      obras: u.obras ? u.obras.map((o) => String(o)) : []
+      obras: u.obras ? u.obras.map((o) => String(o)) : [],
+      permissoesJuridico: u.permissoesJuridico || []
     });
     setModal(true);
   };
@@ -52,7 +61,8 @@ export default function Usuarios() {
         email: form.email,
         role: form.role,
         ativo: form.ativo,
-        obras: form.role === 'admin' ? [] : form.obras
+        obras: form.role === 'admin' ? [] : form.obras,
+        permissoesJuridico: form.permissoesJuridico
       };
       if (editando) await api.put(`/usuarios/${editando}`, payload);
       else await api.post('/usuarios', payload);
@@ -86,7 +96,6 @@ export default function Usuarios() {
         <h1>Usuários e permissões</h1>
         <button className="btn btn-destaque" onClick={abrirNovo}>+ Novo usuário</button>
       </div>
-
       {erro && <div className="erro">{erro}</div>}
       {mensagem && <div className="sucesso">{mensagem}</div>}
       <div className="card">
@@ -101,6 +110,7 @@ export default function Usuarios() {
                 <th>Perfil</th>
                 <th>Status</th>
                 <th>Senha</th>
+                <th>Permissões Jurídicas</th>
                 <th>Obras atribuídas</th>
                 <th>Ações</th>
               </tr>
@@ -113,6 +123,7 @@ export default function Usuarios() {
                   <td>{u.role === 'admin' ? 'Administrador' : 'Usuário'}</td>
                   <td>{u.ativo ? 'Ativo' : 'Inativo'}</td>
                   <td>{u.trocarSenha ? 'Troca obrigatória' : 'Atualizada'}</td>
+                  <td>{u.role === 'admin' ? 'Acesso completo' : (u.permissoesJuridico || []).join(', ') || 'Nenhuma'}</td>
                   <td>
                     {u.role === 'admin'
                       ? '— Todas —'
@@ -154,6 +165,25 @@ export default function Usuarios() {
                     <option value="false">Inativo</option>
                   </select>
                 </div>
+                {form.role !== 'admin' && (
+                  <fieldset className="campo" style={{ gridColumn: '1 / -1' }}>
+                    <legend>Permissões do módulo Jurídico</legend>
+                    {permissoesJuridico.map(([value, label]) => (
+                      <label key={value} style={{ display: 'block', margin: '0.4rem 0' }}>
+                        <input
+                          type="checkbox"
+                          checked={form.permissoesJuridico.includes(value)}
+                          onChange={(e) => setForm({
+                            ...form,
+                            permissoesJuridico: e.target.checked
+                              ? [...form.permissoesJuridico, value]
+                              : form.permissoesJuridico.filter((permission) => permission !== value)
+                          })}
+                        />{' '}{label}
+                      </label>
+                    ))}
+                  </fieldset>
+                )}
                 {form.role === 'usuario' && (
                   <div className="campo" style={{ gridColumn: '1 / -1' }}>
                     <label>Obras atribuídas (se vazio, o usuário não vê nenhuma obra)</label>
