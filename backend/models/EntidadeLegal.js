@@ -5,7 +5,8 @@ const entidadeLegalSchema = new mongoose.Schema({
   razaoSocial: { type: String, required: true, trim: true, maxlength: 200 },
   nomeFantasia: { type: String, trim: true, maxlength: 200 },
   cnpj: { type: String, trim: true, maxlength: 18 },
-  ativo: { type: Boolean, default: true }
+  ativo: { type: Boolean, default: true },
+  motivoArquivamento: { type: String, trim: true, maxlength: 500 }
 }, { timestamps: true });
 
 entidadeLegalSchema.index(

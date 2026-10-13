@@ -6,7 +6,8 @@ const tipoDocumentoJuridicoSchema = new mongoose.Schema({
   categoria: { type: String, required: true, trim: true, maxlength: 120 },
   validadeDias: { type: Number, min: 1, validate: Number.isInteger },
   antecedenciaAlertaDias: { type: Number, min: 0, validate: Number.isInteger },
-  ativo: { type: Boolean, default: true }
+  ativo: { type: Boolean, default: true },
+  motivoArquivamento: { type: String, trim: true, maxlength: 500 }
 }, { timestamps: true });
 
 tipoDocumentoJuridicoSchema.index({ empresa: 1, categoria: 1, nome: 1 }, { unique: true });

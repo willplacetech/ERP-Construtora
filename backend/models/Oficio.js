@@ -28,6 +28,7 @@ const oficioSchema = new mongoose.Schema({
   enviadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   arquivadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   arquivadoEm: Date,
+  motivoArquivamento: { type: String, trim: true, maxlength: 500 },
   observacao: { type: String, trim: true, maxlength: 1000 }
 }, { timestamps: true });
 

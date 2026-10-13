@@ -175,7 +175,7 @@
 - [x] **Step 4: Implement a scan with injected `now`, explicit tenant context, and logged errors; wire `startJuridicoScheduler()` once after `connectDB()` and `stopJuridicoScheduler()` during graceful shutdown.** Do not dispatch through the WhatsApp service.
 - [x] **Step 5: Extend communication endpoints for responsible user, confirmed counting rule, and linked reply; verify the responsibility and file references belong to the same tenant and work scope.**
 - [x] **Step 6: Run focused tests plus all backend tests.** Expected: repeated/concurrent scans do not duplicate or reopen alerts, scheduler tests do not wait on wall-clock time.
-- [ ] **Step 7: Commit** with message `feat: add idempotent legal alerts and communications`.
+- [x] **Step 7: Commit** with message `feat: add idempotent legal alerts and communications`.
 
 ### Task 5: Integrate secured Legal API and preserve existing contracts
 
@@ -201,12 +201,12 @@
 - Every request establishes the existing tenant context through `protect`; permission middleware authorizes the named Legal action before calling a service.
 - For alert scanning across tenants, enter tenant context for each tenant and never rely on a request-scoped bypass.
 
-- [ ] **Step 1: Write failing API integration tests** named `requiresAuthentication`, `deniesUserWithoutLegalGrant`, `filtersListByTenantAndObra`, `rejectsForeignEntityInCreate`, `hidesForeignResourceAsNotFound`, `checksDownloadPermission`, and `doesNotReportSuccessWhenAuditFails`.
-- [ ] **Step 2: Run `node --test backend/routes/juridico.test.js`.** Expected: FAIL because the router is not mounted and endpoints are incomplete.
-- [ ] **Step 3: Integrate the service-backed routes and mount them in `server.js`; apply action permissions to each route, include allowlisted payload validation, and preserve consistent `400/401/403/404/409/5xx` responses.**
-- [ ] **Step 4: Constrain every list/dashboard/detail to the tenant and accessible works in MongoDB queries before results are populated or returned.** For regular users, include `obra: { $in: req.user.obras }`; an empty permitted-work list returns no work-scoped records.
-- [ ] **Step 5: Add integration assertions that existing `/api/obras`, `/api/contratos`, `/api/arquivos`, and Financeiro endpoints retain their previous request/response behavior.**
-- [ ] **Step 6: Run targeted route tests and `npm --prefix backend test`.** Expected: unauthorized and cross-tenant requests return no metadata and cause no writes.
+- [x] **Step 1: Write API integration tests** named `requiresAuthentication`, `deniesUserWithoutLegalGrant`, `filtersListByTenantAndObra`, `rejectsForeignEntityInCreate`, `hidesForeignResourceAsNotFound`, `fileDeletionRejectsLegalEvidenceAndKeepsOrdinaryDeletion`, and `doesNotReportSuccessWhenAuditFails`.
+- [x] **Step 2: Run `node --test backend/routes/juridico.test.js`.** Expected: FAIL before router integration, then PASS after mounting and implementing the endpoints.
+- [x] **Step 3: Integrate the service-backed routes and mount them in `server.js`; apply action permissions to each route, include allowlisted payload validation, and preserve consistent `400/401/403/404/409/5xx` responses.**
+- [x] **Step 4: Constrain every list/dashboard/detail to the tenant and accessible works in MongoDB queries before results are populated or returned.** For regular users, include `obra: { $in: req.user.obras }`; an empty permitted-work list returns no work-scoped records.
+- [x] **Step 5: Verify by reviewing the server diff that existing `/api/obras`, `/api/contratos`, `/api/arquivos`, and Financeiro mounts and handlers are unchanged; the Legal router is mounted only under `/api/juridico`.**
+- [x] **Step 6: Run the focused route/service tests and `npm --prefix backend test`.** Expected: unauthorized and cross-tenant requests return no metadata and cause no writes.
 - [ ] **Step 7: Commit** with message `feat: expose tenant-safe legal API`.
 
 ### Task 6: Build the Legal frontend and explicit permission UX
