@@ -15,14 +15,15 @@ const pedidoCompraSchema = new mongoose.Schema({
   numero: { type: String, required: true, trim: true },
   fornecedor: { type: mongoose.Schema.Types.ObjectId, ref: 'Fornecedor', required: true },
   obra: { type: mongoose.Schema.Types.ObjectId, ref: 'Obra', default: null },
-  status: { type: String, enum: ['rascunho', 'aprovado', 'em_aberto', 'recebido', 'cancelado'], default: 'rascunho' },
+  status: { type: String, default: 'rascunho' },
   dataPedido: { type: Date, default: Date.now },
   dataEntregaPrevista: Date,
   dataRecebimento: Date,
   lancamentoPagar: { type: mongoose.Schema.Types.ObjectId, ref: 'Lancamento', default: null },
   observacoes: String,
   itens: [itemPedidoSchema],
-  valorTotal: { type: Number, default: 0, min: 0 }
+  valorTotal: { type: Number, default: 0, min: 0 },
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 pedidoCompraSchema.index({ empresa: 1, numero: 1 }, { unique: true });

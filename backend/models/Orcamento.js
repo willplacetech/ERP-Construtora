@@ -17,9 +17,10 @@ const orcamentoSchema = new mongoose.Schema({
   itens: [itemOrcamentoSchema],
   desconto: { type: Number, default: 0, min: 0 },
   acrescimo: { type: Number, default: 0, min: 0 },
-  status: { type: String, enum: ['rascunho', 'aprovado', 'rejeitado', 'cancelado'], default: 'rascunho' },
+  status: { type: String, default: 'rascunho' },
   dataCriacao: { type: Date, default: Date.now },
-  validadeDias: { type: Number, default: 30, min: 1 }
+  validadeDias: { type: Number, default: 30, min: 1 },
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 orcamentoSchema.virtual('total').get(function () {

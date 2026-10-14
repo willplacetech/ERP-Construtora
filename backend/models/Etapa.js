@@ -8,8 +8,9 @@ const etapaSchema = new mongoose.Schema({
   quantidadeTotal: { type: Number, required: true, min: 0.01 },
   quantidadeMedida: { type: Number, default: 0, min: 0 },
   precoUnitario: { type: Number, required: true, min: 0 },
-  status: { type: String, enum: ['nao_iniciada', 'em_andamento', 'concluida'], default: 'nao_iniciada' },
-  pesoFisicoPercent: { type: Number, default: 0, min: 0, max: 100 }
+  status: { type: String, default: 'nao_iniciada' },
+  pesoFisicoPercent: { type: Number, default: 0, min: 0, max: 100 },
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 etapaSchema.plugin(tenantPlugin);

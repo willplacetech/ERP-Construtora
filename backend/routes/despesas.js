@@ -2,6 +2,7 @@ import express from 'express';
 import { protect, adminOnly } from '../middleware/auth.js';
 import Obra from '../models/Obra.js';
 import Lancamento from '../models/Lancamento.js';
+import { auditAction } from '../services/auditService.js';
 
 const router = express.Router();
 router.use(protect);
@@ -26,8 +27,17 @@ categoria: categoria || 'combustivel',
       litros: Number(litros) || 0,
       obra: obraId,
       valor: Number(valor),
-      dataVencimento: dataVencimento ? new Date(dataVencimento) : new Date(),
-      status: 'pendente'
+       dataVencimento: dataVencimento ? new Date(dataVencimento) : new Date(),
+       status: 'pendente'
+     });
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'create',
+      modelo: 'Lancamento',
+      documentoId: lancamento._id,
+      depois: lancamento.toObject ? lancamento.toObject() : lancamento
     });
 
     res.status(201).json({

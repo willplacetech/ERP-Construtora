@@ -1,5 +1,6 @@
-const { execSync } = require('child_process');
-const path = require('path');
+import { execSync } from 'child_process';
+import { resolve } from 'path';
+import { existsSync } from 'fs';
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/sienge';
 
@@ -9,9 +10,9 @@ if (args.length === 0) {
   process.exit(1);
 }
 
-const backupPath = path.resolve(args[0]);
+const backupPath = resolve(args[0]);
 
-if (!require('fs').existsSync(backupPath)) {
+if (!existsSync(backupPath)) {
   console.error(`Diretório de backup não encontrado: ${backupPath}`);
   process.exit(1);
 }

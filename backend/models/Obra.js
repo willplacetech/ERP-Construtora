@@ -9,11 +9,7 @@ const obraSchema = new mongoose.Schema({
   cidade: String,
   uf: String,
   cliente: { type: mongoose.Schema.Types.ObjectId, ref: 'Cliente' },
-  status: {
-    type: String,
-    enum: ['planejamento', 'em_andamento', 'pausada', 'concluida'],
-    default: 'planejamento'
-  },
+  status: { type: String, default: 'planejamento' },
   valorOrcamento: { type: Number, default: 0, min: 0 },
   dataInicio: Date,
   dataPrevisaoFim: Date,
@@ -39,7 +35,8 @@ const obraSchema = new mongoose.Schema({
   lucroReal: { type: Number, default: 0 },
   margemPercentual: { type: Number, default: 0 },
   percentualFisico: { type: Number, default: 0 },
-  percentualFinanceiro: { type: Number, default: 0 }
+  percentualFinanceiro: { type: Number, default: 0 },
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 obraSchema.index({ empresa: 1, codigo: 1 }, { unique: true, partialFilterExpression: { codigo: { $type: 'string' } } });

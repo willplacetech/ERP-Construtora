@@ -1,6 +1,7 @@
 import express from 'express';
 import Obra from '../models/Obra.js';
 import Etapa from '../models/Etapa.js';
+import Etapa from '../models/Etapa.js';
 import Medicao from '../models/Medicao.js';
 import Material from '../models/Material.js';
 import Lancamento from '../models/Lancamento.js';
@@ -9,20 +10,22 @@ import { protect, adminOnly } from '../middleware/auth.js';
 import { obraScope, obraAccess } from '../middleware/obraAccess.js';
 import { pick } from '../utils/fields.js';
 import { incluirProgressoObras } from '../utils/progressoObra.js';
+import { auditAction } from '../services/auditService.js';
+import { auditAction } from '../services/auditService.js';
 
 const router = express.Router();
 router.use(protect);
 
 router.get('/', obraScope(), async (req, res, next) => {
   try {
-    const docs = await Obra.find(req.obrasFiltro).populate('cliente', 'nome').sort({ createdAt: -1 });
+    const docs = await Obra.find({ ...req.obrasFiltro, deletedAt: null }).populate('cliente', 'nome').sort({ createdAt: -1 });
     res.json(await incluirProgressoObras(docs));
   } catch (err) { next(err); }
 });
 
 router.get('/:id/etapas', obraAccess, async (req, res, next) => {
   try {
-    const etapas = await Etapa.find({ obra: req.params.id }).sort({ createdAt: 1 });
+    const etapas = await Etapa.find({ obra: req.params.id, deletedAt: null }).sort({ createdAt: 1 });
     res.json(etapas);
   } catch (err) { next(err); }
 });
@@ -32,30 +35,66 @@ router.post('/:id/etapas', obraAccess, async (req, res, next) => {
     const obraExiste = await Obra.exists({ _id: req.params.id });
     if (!obraExiste) return res.status(404).json({ error: 'Obra nao encontrada' });
     const etapa = await Etapa.create({ ...pick(req.body, ['descricao', 'unidade', 'quantidadeTotal', 'precoUnitario']), obra: req.params.id });
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'create',
+      modelo: 'Etapa',
+      documentoId: etapa._id,
+      depois: etapa.toObject ? etapa.toObject() : etapa
+    });
     res.status(201).json(etapa);
   } catch (err) { next(err); }
 });
 
 router.put('/:id/etapas/:etapaId', obraAccess, async (req, res, next) => {
   try {
+    const antes = await Etapa.findOne({ _id: req.params.etapaId, obra: req.params.id, quantidadeMedida: 0, deletedAt: null });
+    if (!antes) return res.status(404).json({ error: 'Etapa nao encontrada ou ja medida' });
     const etapa = await Etapa.findOneAndUpdate(
-      { _id: req.params.etapaId, obra: req.params.id, quantidadeMedida: 0 },
+      { _id: req.params.etapaId, obra: req.params.id, quantidadeMedida: 0, deletedAt: null },
       pick(req.body, ['descricao', 'unidade', 'quantidadeTotal', 'precoUnitario']),
       { new: true, runValidators: true }
     );
     if (!etapa) return res.status(404).json({ error: 'Etapa nao encontrada ou ja medida' });
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'update',
+      modelo: 'Etapa',
+      documentoId: etapa._id,
+      antes: antes.toObject ? antes.toObject() : antes,
+      depois: etapa.toObject ? etapa.toObject() : etapa
+    });
     res.json(etapa);
   } catch (err) { next(err); }
 });
 
 router.delete('/:id/etapas/:etapaId', obraAccess, async (req, res, next) => {
   try {
-    const etapa = await Etapa.findOne({ _id: req.params.etapaId, obra: req.params.id });
-    if (!etapa) return res.status(404).json({ error: 'Etapa nao encontrada' });
-    if (etapa.quantidadeMedida > 0 || await Medicao.exists({ etapa: etapa._id })) {
+    const antes = await Etapa.findOne({ _id: req.params.etapaId, obra: req.params.id, deletedAt: null });
+    if (!antes) return res.status(404).json({ error: 'Etapa nao encontrada' });
+    if (antes.quantidadeMedida > 0 || await Medicao.exists({ etapa: antes._id })) {
       return res.status(400).json({ error: 'Etapas com medicao nao podem ser excluidas' });
     }
-    await etapa.deleteOne();
+    const etapa = await Etapa.findOneAndUpdate(
+      { _id: req.params.etapaId, obra: req.params.id },
+      { deletedAt: new Date() },
+      { new: true }
+    );
+    if (!etapa) return res.status(404).json({ error: 'Etapa nao encontrada' });
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'delete',
+      modelo: 'Etapa',
+      documentoId: etapa._id,
+      antes: antes.toObject ? antes.toObject() : antes,
+      depois: etapa.toObject ? etapa.toObject() : etapa
+    });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -142,7 +181,7 @@ router.get('/:id/relatorio', obraAccess, async (req, res, next) => {
 
 router.get('/:id', obraAccess, async (req, res, next) => {
   try {
-    const doc = await Obra.findById(req.params.id).populate('cliente');
+    const doc = await Obra.findOne({ _id: req.params.id, deletedAt: null }).populate('cliente');
     if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
     res.json((await incluirProgressoObras([doc]))[0]);
   } catch (err) { next(err); }
@@ -151,22 +190,63 @@ router.get('/:id', obraAccess, async (req, res, next) => {
 router.post('/', async (req, res, next) => {
   try {
     const doc = await Obra.create(pick(req.body, ['codigo', 'nome', 'descricao', 'endereco', 'cidade', 'uf', 'cliente', 'status', 'valorOrcamento', 'dataInicio', 'dataPrevisaoFim', 'dataConclusao', 'responsavel']));
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'create',
+      modelo: 'Obra',
+      documentoId: doc._id,
+      depois: doc.toObject ? doc.toObject() : doc
+    });
     res.status(201).json(doc);
   } catch (err) { next(err); }
 });
 
 router.put('/:id', obraAccess, async (req, res, next) => {
   try {
-    const doc = await Obra.findByIdAndUpdate(req.params.id, pick(req.body, ['codigo', 'nome', 'descricao', 'endereco', 'cidade', 'uf', 'cliente', 'status', 'valorOrcamento', 'dataInicio', 'dataPrevisaoFim', 'dataConclusao', 'responsavel']), { new: true, runValidators: true });
+    const antes = await Obra.findOne({ _id: req.params.id, deletedAt: null });
+    if (!antes) return res.status(404).json({ error: 'Nao encontrado' });
+    const doc = await Obra.findOneAndUpdate(
+      { _id: req.params.id, deletedAt: null },
+      pick(req.body, ['codigo', 'nome', 'descricao', 'endereco', 'cidade', 'uf', 'cliente', 'status', 'valorOrcamento', 'dataInicio', 'dataPrevisaoFim', 'dataConclusao', 'responsavel']),
+      { new: true, runValidators: true }
+    );
     if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'update',
+      modelo: 'Obra',
+      documentoId: doc._id,
+      antes: antes.toObject ? antes.toObject() : antes,
+      depois: doc.toObject ? doc.toObject() : doc
+    });
     res.json(doc);
   } catch (err) { next(err); }
 });
 
 router.delete('/:id', adminOnly, async (req, res, next) => {
   try {
-    const doc = await Obra.findByIdAndDelete(req.params.id);
+    const antes = await Obra.findOne({ _id: req.params.id, deletedAt: null });
+    if (!antes) return res.status(404).json({ error: 'Nao encontrado' });
+    const doc = await Obra.findOneAndUpdate(
+      { _id: req.params.id },
+      { deletedAt: new Date() },
+      { new: true }
+    );
     if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'delete',
+      modelo: 'Obra',
+      documentoId: doc._id,
+      antes: antes.toObject ? antes.toObject() : antes,
+      depois: doc.toObject ? doc.toObject() : doc
+    });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

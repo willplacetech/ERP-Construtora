@@ -21,7 +21,8 @@ const materialSchema = new mongoose.Schema({
   estoqueMinimo: { type: Number, default: 0, min: 0 },
   custoUnitario: { type: Number, default: 0, min: 0 },
   fornecedor: String,
-  movimentos: [movimentoSchema]
+  movimentos: [movimentoSchema],
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 materialSchema.index({ empresa: 1, codigo: 1 }, { unique: true, partialFilterExpression: { codigo: { $type: 'string' } } });

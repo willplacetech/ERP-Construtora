@@ -6,6 +6,7 @@ import Fornecedor from '../models/Fornecedor.js';
 import Lancamento from '../models/Lancamento.js';
 import { protect, adminOnly } from '../middleware/auth.js';
 import { pick } from '../utils/fields.js';
+import { auditAction } from '../services/auditService.js';
 
 const router = express.Router();
 router.use(protect);
@@ -24,14 +25,14 @@ const normalizeItens = (itens = []) => (itens || []).map((item) => {
 
 router.get('/', async (req, res, next) => {
   try {
-    const docs = await PedidoCompra.find().populate('fornecedor', 'nome razaoSocial').populate('obra', 'nome').sort({ dataPedido: -1 });
+    const docs = await PedidoCompra.find({ deletedAt: null }).populate('fornecedor', 'nome razaoSocial').populate('obra', 'nome').sort({ dataPedido: -1 });
     res.json(docs);
   } catch (err) { next(err); }
 });
 
 router.get('/:id', async (req, res, next) => {
   try {
-    const doc = await PedidoCompra.findById(req.params.id).populate('fornecedor', 'nome razaoSocial').populate('obra', 'nome');
+    const doc = await PedidoCompra.findOne({ _id: req.params.id, deletedAt: null }).populate('fornecedor', 'nome razaoSocial').populate('obra', 'nome');
     if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
     res.json(doc);
   } catch (err) { next(err); }
@@ -48,26 +49,50 @@ router.post('/', adminOnly, async (req, res, next) => {
     const doc = await PedidoCompra.create({ ...payload, itens });
     await doc.populate('fornecedor', 'nome razaoSocial');
     await doc.populate('obra', 'nome');
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'create',
+      modelo: 'PedidoCompra',
+      documentoId: doc._id,
+      depois: doc.toObject ? doc.toObject() : doc
+    });
     res.status(201).json(doc);
   } catch (err) { next(err); }
 });
 
 router.put('/:id', adminOnly, async (req, res, next) => {
   try {
+    const antes = await PedidoCompra.findOne({ _id: req.params.id, deletedAt: null });
+    if (!antes) return res.status(404).json({ error: 'Nao encontrado' });
+    if (antes.status === 'recebido') return res.status(409).json({ error: 'Pedido recebido nao pode ser alterado' });
+
     const payload = pick(req.body, ['numero', 'fornecedor', 'obra', 'status', 'dataPedido', 'dataEntregaPrevista', 'observacoes', 'itens']);
     if (payload.status === 'recebido') {
       return res.status(400).json({ error: 'Use a acao de recebimento para atualizar o estoque e gerar o titulo financeiro' });
     }
-    const atual = await PedidoCompra.findById(req.params.id);
-    if (!atual) return res.status(404).json({ error: 'Nao encontrado' });
-    if (atual.status === 'recebido') return res.status(409).json({ error: 'Pedido recebido nao pode ser alterado' });
     if (Array.isArray(payload.itens)) payload.itens = normalizeItens(payload.itens);
-    const doc = await PedidoCompra.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true });
+    const doc = await PedidoCompra.findOneAndUpdate(
+      { _id: req.params.id, deletedAt: null },
+      payload,
+      { new: true, runValidators: true }
+    );
     if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
     await doc.populate('fornecedor', 'nome razaoSocial');
     await doc.populate('obra', 'nome');
     doc.valorTotal = (doc.itens || []).reduce((acc, item) => acc + (Number(item.quantidade || 0) * Number(item.custoUnitario || 0)), 0);
     await doc.save();
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'update',
+      modelo: 'PedidoCompra',
+      documentoId: doc._id,
+      antes: antes.toObject ? antes.toObject() : antes,
+      depois: doc.toObject ? doc.toObject() : doc
+    });
     res.json(doc);
   } catch (err) { next(err); }
 });
@@ -81,6 +106,8 @@ router.post('/:id/receber', adminOnly, async (req, res, next) => {
     }
 
     let resposta;
+    let antesPedido;
+    let lancamentoDoc;
     await session.withTransaction(async () => {
       const pedido = await PedidoCompra.findById(req.params.id).session(session);
       if (!pedido) {
@@ -88,6 +115,7 @@ router.post('/:id/receber', adminOnly, async (req, res, next) => {
         error.status = 404;
         throw error;
       }
+      antesPedido = pedido; // capture before changes
       if (pedido.status === 'recebido') {
         const lancamento = pedido.lancamentoPagar
           ? await Lancamento.findById(pedido.lancamentoPagar).session(session)
@@ -156,12 +184,33 @@ router.post('/:id/receber', adminOnly, async (req, res, next) => {
         observacoes: `Recebimento do pedido ${pedido.numero}`
       });
       await lancamento.save({ session });
+      lancamentoDoc = lancamento;
 
       pedido.status = 'recebido';
       pedido.dataRecebimento = new Date();
       pedido.lancamentoPagar = lancamento._id;
       await pedido.save({ session });
       resposta = { pedido, lancamento };
+    });
+
+    // Audit Lancamento creation
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'create',
+      modelo: 'Lancamento',
+      documentoId: lancamentoDoc._id,
+      depois: lancamentoDoc.toObject ? lancamentoDoc.toObject() : lancamentoDoc
+    });
+    // Audit PedidoCompra update
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'update',
+      modelo: 'PedidoCompra',
+      documentoId: antesPedido._id,
+      antes: antesPedido.toObject ? antesPedido.toObject() : antesPedido,
+      depois: resposta.pedido.toObject ? resposta.pedido.toObject() : resposta.pedido
     });
 
     res.json(resposta);
@@ -174,10 +223,25 @@ router.post('/:id/receber', adminOnly, async (req, res, next) => {
 
 router.delete('/:id', adminOnly, async (req, res, next) => {
   try {
-    const pedido = await PedidoCompra.findById(req.params.id);
-    if (pedido?.status === 'recebido') return res.status(409).json({ error: 'Pedido recebido nao pode ser excluido' });
-    const doc = await PedidoCompra.findByIdAndDelete(req.params.id);
+    const antes = await PedidoCompra.findOne({ _id: req.params.id, deletedAt: null });
+    if (!antes) return res.status(404).json({ error: 'Nao encontrado' });
+    if (antes.status === 'recebido') return res.status(409).json({ error: 'Pedido recebido nao pode ser excluido' });
+    const doc = await PedidoCompra.findOneAndUpdate(
+      { _id: req.params.id },
+      { deletedAt: new Date() },
+      { new: true }
+    );
     if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'delete',
+      modelo: 'PedidoCompra',
+      documentoId: doc._id,
+      antes: antes.toObject ? antes.toObject() : antes,
+      depois: doc.toObject ? doc.toObject() : doc
+    });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

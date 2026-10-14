@@ -19,7 +19,7 @@ const fornecedorSchema = new mongoose.Schema({
   endereco: String,
   cidade: String,
   uf: String,
-  status: { type: String, enum: ['ativo', 'inativo'], default: 'ativo' },
+  status: { type: String, default: 'ativo' },
   observacoes: String,
   chavesPix: [pixKeySchema],
   dadosBancarios: {

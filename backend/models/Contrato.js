@@ -40,12 +40,9 @@ const contratoSchema = new mongoose.Schema({
   dataFim: Date,
   prazoBaseJuridico: prazoBaseJuridicoSchema,
   prazoAtualJuridico: prazoAtualJuridicoSchema,
-  status: {
-    type: String,
-    enum: ['rascunho', 'ativo', 'suspenso', 'encerrado'],
-    default: 'rascunho'
-  },
-  observacoes: String
+  status: { type: String, default: 'rascunho' },
+  observacoes: String,
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 contratoSchema.index({ empresa: 1, numero: 1 }, { unique: true, partialFilterExpression: { numero: { $type: 'string' } } });

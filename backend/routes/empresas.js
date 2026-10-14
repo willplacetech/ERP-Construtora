@@ -18,6 +18,7 @@ import { runWithTenant } from '../middleware/tenantContext.js';
 import { isValidEmail } from '../utils/security.js';
 import { sendInvitation } from '../services/invitations.js';
 import { seedDemoCompany } from '../services/demoCompany.js';
+import { auditAction } from '../services/auditService.js';
 
 const router = express.Router();
 const tenantModels = [
@@ -66,6 +67,15 @@ router.post('/', async (req, res, next) => {
       criadoPor: req.user.id,
       alteradoPor: req.user.id
     });
+    // Audit empresa creation
+    await auditAction({
+      empresaId: empresa._id,
+      usuarioId: req.user.id,
+      acao: 'create',
+      modelo: 'Empresa',
+      documentoId: empresa._id,
+      depois: empresa.toObject ? empresa.toObject() : empresa
+    });
 
     const admin = await runWithTenant({
       empresaId: String(empresa._id),
@@ -77,7 +87,17 @@ router.post('/', async (req, res, next) => {
       senha: `A1${randomBytes(32).toString('hex')}`,
       role: 'admin',
       trocarSenha: true
-    }));
+     }));
+    // Audit admin creation
+    await auditAction({
+      empresaId: String(empresa._id),
+      usuarioId: req.user.id,
+      acao: 'create',
+      modelo: 'User',
+      documentoId: admin._id,
+      depois: admin.toObject ? admin.toObject() : admin
+    });
+
     await seedDemoCompany(empresa, admin._id);
     await sendInvitation(admin, { actorId: req.user.id });
 

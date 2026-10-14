@@ -20,7 +20,7 @@ const userSchema = new mongoose.Schema({
     select: false,
     validate: { validator: (value) => !passwordError(value), message: 'Senha fraca' }
   },
-  role: { type: String, enum: ['admin', 'usuario'], default: 'usuario' },
+  role: { type: String, default: 'usuario' },
   ativo: { type: Boolean, default: true },
   superAdmin: { type: Boolean, default: false },
   trocarSenha: { type: Boolean, default: false },

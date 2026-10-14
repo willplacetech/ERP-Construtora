@@ -87,29 +87,57 @@ const result = await runWithTenant({
   if (!demo.criadoPor) demo.criadoPor = admin._id;
   demo.alteradoPor = admin._id;
   await demo.save();
-   // Seed lookup data (parametrizable cadastros)
-   await Lookup.insertMany([
-     // Lancamento tipo
-     { empresa: demo._id, tipo: 'tipo_lancamento', chave: 'pagar', valor: 'Pagar', ativo: true },
-     { empresa: demo._id, tipo: 'tipo_lancamento', chave: 'receber', valor: 'Receber', ativo: true },
-     // Lancamento status
-     { empresa: demo._id, tipo: 'status_lancamento', chave: 'pendente', valor: 'Pendente', ativo: true },
-     { empresa: demo._id, tipo: 'status_lancamento', chave: 'pago', valor: 'Pago', ativo: true },
-     { empresa: demo._id, tipo: 'status_lancamento', chave: 'atrasado', valor: 'Atrasado', ativo: true },
-     // Fornecedor status
-     { empresa: demo._id, tipo: 'status_fornecedor', chave: 'ativo', valor: 'Ativo', ativo: true },
-     { empresa: demo._id, tipo: 'status_fornecedor', chave: 'inativo', valor: 'Inativo', ativo: true },
-     // User role
-     { empresa: demo._id, tipo: 'role_usuario', chave: 'admin', valor: 'Administrador', ativo: true },
-     { empresa: demo._id, tipo: 'role_usuario', chave: 'usuario', valor: 'Usuário', ativo: true },
-     // Fornecedor categoria
-     { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'material', valor: 'Material', ativo: true },
-     { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'servico', valor: 'Serviço', ativo: true },
-     { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'combustivel', valor: 'Combustível', ativo: true }
-   ]).catch(err => {
-     // Ignore duplicate key errors
-     if (err.code !== 11000) throw err;
-   });
+    // Seed lookup data (parametrizable cadastros)
+    await Lookup.insertMany([
+      // Lancamento tipo
+      { empresa: demo._id, tipo: 'tipo_lancamento', chave: 'pagar', valor: 'Pagar', ativo: true },
+      { empresa: demo._id, tipo: 'tipo_lancamento', chave: 'receber', valor: 'Receber', ativo: true },
+      // Lancamento status
+      { empresa: demo._id, tipo: 'status_lancamento', chave: 'pendente', valor: 'Pendente', ativo: true },
+      { empresa: demo._id, tipo: 'status_lancamento', chave: 'pago', valor: 'Pago', ativo: true },
+      { empresa: demo._id, tipo: 'status_lancamento', chave: 'atrasado', valor: 'Atrasado', ativo: true },
+      // Obra status
+      { empresa: demo._id, tipo: 'status_obra', chave: 'planejamento', valor: 'Planejamento', ativo: true },
+      { empresa: demo._id, tipo: 'status_obra', chave: 'em_andamento', valor: 'Em Andamento', ativo: true },
+      { empresa: demo._id, tipo: 'status_obra', chave: 'pausada', valor: 'Pausada', ativo: true },
+      { empresa: demo._id, tipo: 'status_obra', chave: 'concluida', valor: 'Concluida', ativo: true },
+      // Contrato status
+      { empresa: demo._id, tipo: 'status_contrato', chave: 'rascunho', valor: 'Rascunho', ativo: true },
+      { empresa: demo._id, tipo: 'status_contrato', chave: 'ativo', valor: 'Ativo', ativo: true },
+      { empresa: demo._id, tipo: 'status_contrato', chave: 'suspenso', valor: 'Suspenso', ativo: true },
+      { empresa: demo._id, tipo: 'status_contrato', chave: 'encerrado', valor: 'Encerrado', ativo: true },
+      // Orcamento status
+      { empresa: demo._id, tipo: 'status_orcamento', chave: 'rascunho', valor: 'Rascunho', ativo: true },
+      { empresa: demo._id, tipo: 'status_orcamento', chave: 'aprovado', valor: 'Aprovado', ativo: true },
+      { empresa: demo._id, tipo: 'status_orcamento', chave: 'rejeitado', valor: 'Rejeitado', ativo: true },
+      { empresa: demo._id, tipo: 'status_orcamento', chave: 'cancelado', valor: 'Cancelado', ativo: true },
+      // PedidoCompra status
+      { empresa: demo._id, tipo: 'status_pedido_compra', chave: 'rascunho', valor: 'Rascunho', ativo: true },
+      { empresa: demo._id, tipo: 'status_pedido_compra', chave: 'aprovado', valor: 'Aprovado', ativo: true },
+      { empresa: demo._id, tipo: 'status_pedido_compra', chave: 'em_aberto', valor: 'Em Aberto', ativo: true },
+      { empresa: demo._id, tipo: 'status_pedido_compra', chave: 'recebido', valor: 'Recebido', ativo: true },
+      { empresa: demo._id, tipo: 'status_pedido_compra', chave: 'cancelado', valor: 'Cancelado', ativo: true },
+      // Etapa status
+      { empresa: demo._id, tipo: 'status_etapa', chave: 'nao_iniciada', valor: 'Não Iniciada', ativo: true },
+      { empresa: demo._id, tipo: 'status_etapa', chave: 'em_andamento', valor: 'Em Andamento', ativo: true },
+      { empresa: demo._id, tipo: 'status_etapa', chave: 'concluida', valor: 'Concluida', ativo: true },
+      // Fornecedor status
+      { empresa: demo._id, tipo: 'status_fornecedor', chave: 'ativo', valor: 'Ativo', ativo: true },
+      { empresa: demo._id, tipo: 'status_fornecedor', chave: 'inativo', valor: 'Inativo', ativo: true },
+      // User role
+      { empresa: demo._id, tipo: 'role_usuario', chave: 'admin', valor: 'Administrador', ativo: true },
+      { empresa: demo._id, tipo: 'role_usuario', chave: 'usuario', valor: 'Usuário', ativo: true },
+      // Empresa plano
+      { empresa: demo._id, tipo: 'plano_empresa', chave: 'trial', valor: 'Trial', ativo: true },
+      { empresa: demo._id, tipo: 'plano_empresa', chave: 'pago', valor: 'Pago', ativo: true },
+      // Fornecedor categoria
+      { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'material', valor: 'Material', ativo: true },
+      { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'servico', valor: 'Serviço', ativo: true },
+      { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'combustivel', valor: 'Combustível', ativo: true }
+    ]).catch(err => {
+      // Ignore duplicate key errors
+      if (err.code !== 11000) throw err;
+    });
 
    await seedDemoCompany(demo, admin._id);
   return { admin, created };

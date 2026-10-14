@@ -1,4 +1,5 @@
 import Lancamento from '../models/Lancamento.js';
+import { auditAction } from '../services/auditService.js';
 
 function dataVencimentoMensal(primeiraData, indice) {
   const ano = primeiraData.getUTCFullYear();
@@ -8,7 +9,7 @@ function dataVencimentoMensal(primeiraData, indice) {
   return new Date(Date.UTC(ano, mes, Math.min(dia, ultimoDiaDoMes)));
 }
 
-export async function gerarParcelasContrato({ contrato, session }) {
+export async function gerarParcelasContrato({ contrato, session, usuarioId }) {
   const quantidade = Number(contrato.numeroParcelas);
   const totalCentavos = Math.round(Number(contrato.valorTotal) * 100);
   if (!Number.isInteger(quantidade) || quantidade < 1 || totalCentavos < 1) {
@@ -58,6 +59,17 @@ export async function gerarParcelasContrato({ contrato, session }) {
       { $setOnInsert: dados },
       { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true, session }
     ));
-  }
-  return parcelas;
-}
+   }
+    // Audit each lancamento creation
+    for (const lanc of parcelas) {
+      await auditAction({
+        empresaId: contrato.empresa,
+        usuarioId: usuarioId,
+        acao: 'create',
+        modelo: 'Lancamento',
+        documentoId: lanc._id,
+        depois: lanc.toObject ? lanc.toObject() : lanc
+      });
+    }
+   return parcelas;
+ }
