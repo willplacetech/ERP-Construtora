@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { NavLink, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import Consultas from './Dashboard/Assistente.jsx';
 import Lancamentos from './WhatsApp.jsx';
 import UsuarioWhatsApp from './UsuarioWhatsApp.jsx';
+import DocumentoWidget from '../components/DocumentoWidget';
 
 const secoes = [
   { to: '/assistente', titulo: 'Consultas e alertas', Componente: Consultas, fim: true },

@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { fmtMoeda } from '../../api.js';
 import {
   LEMBRETES_MOCK,
-  CERTIDOES_MOCK,
+  CERTIDAES_MOCK,
   OBRAS_MOCK,
   COLABORADORES_MOCK,
 } from '../../utils/mockData.js';

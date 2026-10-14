@@ -1,275 +1,145 @@
-# Sienge-MERN — Sistema Essencial de Gestão de Obras
+# ConstruERP - Assistente Operacional do Dono
 
-Implementação **MERN** (MongoDB, Express, React, Node.js) dos módulos essenciais de um ERP de construção civil, no estilo **Sienge**.
+## Visão Geral
+Este projeto evolui o ConstruERP para uma plataforma de **Operação Enxuta**, permitindo que o proprietário opere com equipe mínima (ou sozinho) usando principalmente o **Assistente + WhatsApp**, com o painel web como visão consolidada.
 
-## Módulos inclusos
+## Funcionalidades Principais
 
-| Módulo | Descrição |
-|---|---|
-| 🔐 Auth | Login, convites e recuperacao de senha com JWT, bcrypt e papeis admin/usuario |
-| 🏗️ Obras | Etapas, medições, avanço físico automático e sugestão de baixa de materiais |
-| 👥 Clientes | CRUD com CPF/CNPJ, contato e endereço |
-| 📋 Orçamentos | Itens com quantidade × custo unitário, desconto/acréscimo, total automático |
-| 📄 Contratos | Parcelas de recebimento geradas por vencimento, obra, cliente, valor e vigência |
-| 💰 Financeiro | Contas a pagar/receber, baixa (pagamento), filtros, saldo previsto |
-| 📦 Materiais/Estoque | Cadastro, estoque mínimo, entradas e saídas com histórico |
-| ▦ Dashboard | KPIs, fluxo de caixa e avanço físico comparado ao orçamento consumido por obra |
+### 1. Assistente Operacional (Web)
+- **Consultas em Linguagem Natural**: Pergunte sobre contas, obras, documentos, etc.
+- **Processamento de Comprovantes**: Envie fotos de documentos para extração automática de dados
+- **Integração WhatsApp**: Use o mesmo assistente via WhatsApp
+- **Briefing Diário**: Resumo executivo da operação
 
-## Pré-requisitos
+### 2. Princípio Fundamental
+**IA sugere → Humano confirma → Sistema registra**
 
-- **Node.js** 18+
-- **MongoDB** em replica set (necessário para transações de recebimento e contratos) — use o [MongoDB Atlas](https://www.mongodb.com/atlas) ou configure um replica set local e `MONGO_URI`
+A IA **nunca** grava sozinha:
+- Lançamentos financeiros
+- Baixas de pagamento / recebimento
+- Alterações de status críticos
+- Exclusões
+- Mudanças em documentos oficiais
 
-## Como rodar
+Sempre preparar a ação, mostrar o resumo e pedir confirmação explícita (WhatsApp ou interface).
 
-### 1) Backend (porta 5000)
-
-```bash
-cd backend
-npm install
-cp .env.example .env   # edite se precisar
-npm run seed           # cria admin + dados de exemplo (opcional, mas recomendado)
-npm run dev            # ou: npm start
-```
-
-O seed cria o administrador usando `ADMIN_EMAIL` e `ADMIN_PASSWORD` do `.env`.
-Configure uma senha forte antes de executa-lo; uma conta criada pelo seed precisa
-trocar a senha no primeiro login.
-
-O backend tambem cria automaticamente a conta inicial ao iniciar, apos conectar ao
-MongoDB, quando `ADMIN_EMAIL` e `ADMIN_PASSWORD` estao configurados e a conta ainda nao
-existe. Se `SUPER_ADMIN_EMAIL` estiver definido, esse email tem prioridade; mantenha
-os dois emails iguais. A conta e criada ativa, como super-admin, vinculada a empresa
-`Demo` (criada se necessario), com senha bcrypt e troca obrigatoria no primeiro acesso.
-Essa inicializacao nao popula dados demonstrativos e nao altera contas existentes.
-
-No Render, isso permite criar a conta sem acesso ao Shell: configure essas variaveis
-no **Environment do backend**, salve e faca deploy. Aguarde no log a mensagem
-`Administrador inicial criado`. A senha inicial deve ter pelo menos 8 caracteres,
-letras e numeros. Variaveis ausentes ou invalidas nao impedem o backend de iniciar;
-configuracoes invalidas geram um aviso e a conta nao e criada.
-Depois da criacao, `ADMIN_PASSWORD` pode ser removida do Environment; mantenha o
-email configurado para que a autenticacao reconheca o super-admin.
-
-### 2) Frontend (porta 5173)
-
-Em outro terminal:
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-Abra **http://localhost:5173** e faça login.
-
-> O Vite já tem proxy configurado: chamadas a `/api/*` no frontend são redirecionadas automaticamente para `http://localhost:5000`.
-
-## Estrutura
+## Estrutura do Projeto
 
 ```
-sienge-mern/
-├── backend/
-│   ├── server.js          # entrada Express + rotas
-│   ├── config/db.js       # conexão MongoDB
-│   ├── middleware/auth.js # proteção JWT
-│   ├── models/            # User, Cliente, Obra, Orcamento, Contrato, Lancamento, Material
-│   ├── routes/            # auth, clientes, obras, orcamentos, contratos, financeiro, materiais, dashboard
-│   └── seed.js            # dados iniciais
-└── frontend/
-    └── src/
-        ├── api.js         # cliente axios + formatação
-        ├── context/       # AuthContext (login/logout)
-        ├── components/    # Layout (sidebar)
-        └── pages/         # Login, Dashboard, Clientes, Obras, Orcamentos, Contratos, Financeiro, Materiais
+backend/
+├── routes/
+│   ├── assistente.js     # Rotas do assistente (chat, OCR, WhatsApp)
+│   └── ...               # Outras rotas existentes
+├── services/
+│   ├── ContextService.js         # Serviço para obter contexto operacional
+│   ├── BriefingService.js        # Serviço para gerar briefing diário
+│   ├── assistente/
+│   │   ├── LlmService.js         # Interface com LLMs (OpenAI/Gemini)
+│   │   ├── extratorFoto.js       # Extração de dados de documentos
+│   │   └── whatsappProcessor.js  # Processamento de mensagens WhatsApp
+│   └── index.js                  # Export dos serviços
+├── models/
+│   ├── Lancamento.js             # Modelo de lançamentos financeiros
+│   ├── MensagemAssistente.js     # Modelo de mensagens do assistente
+│   └── ...                       # Outros modelos existentes
+└── server.js                     # Entrada da aplicação
+
+frontend/
+├── src/
+│   ├── pages/
+│   │   ├── Assistente.jsx        # Página principal do assistente (consultas)
+│   │   ├── WhatsApp.jsx          # Página de lançamentos e WhatsApp
+│   │   └── UsuarioWhatsApp.jsx   # Configuração do WhatsApp
+│   │
+│   ├── components/
+│   │   └── DocumentoWidget.jsx   # Widget genérico para processamento de documentos
+│   │
+│   ├── context/                  # Contextos React (Auth, etc.)
+│   ├── utils/                    # Utilitários
+│   ├── App.jsx                   # Componente principal
+│   └── main.jsx                  # Ponto de entrada
 ```
 
-## API (REST, prefixo `/api`)
+## Stack Tecnológico (Confirmado)
 
-Todas as rotas de dados exigem header `Authorization: Bearer <token>`.
+- **Frontend**: React 18.3.1 + Vite
+- **Backend**: Node.js + Express
+- **Banco de Dados**: MongoDB via Mongoose
+- **Autenticação**: JWT + roles
+- **Assistente de IA**: Integração com OpenAI e/ou Google Gemini (ambos instalados)
+- **WhatsApp**: Evolution API ou Meta Cloud API (a ser integrado)
+- **Storage de Arquivos**: Local (via multer)
+- **Indexação/Vetorização**: Ollama local com nomic-embed-text e LanceDB (conforme configuração global do Kilo)
 
-- `POST /auth/login`, `GET /auth/me`
-- `POST /auth/esqueci-senha`, `POST /auth/reset-senha`
-- `GET|POST|PUT|DELETE /clientes`, `/obras`, `/orcamentos`, `/contratos`, `/materiais`
-- `POST /medicoes`, `GET /medicoes?obra=:id`, `POST /medicoes/:id/baixa-estoque`
-- `POST /compras/:id/receber` (gera movimentos de estoque e conta a pagar)
-- `GET|POST|PUT|DELETE /financeiro` + `POST /financeiro/:id/baixar`
-- `POST /materiais/:id/movimento` (entrada/saída de estoque)
-- `GET /dashboard/resumo`
+## Estado da Implementação
 
-## Próximos passos (sugestões)
+### ✅ Concluído
+- Mapeamento do código existente
+- Configuração de LLM (pacotes instalados: openai, @google/generative-ai)
+- Endpoint de consulta funcionando (`/assistente/chat`)
+- UI do Assistente conectada (chat, upload de imagem, configuração de API)
+- Extração de comprovante básica (rotas `/ocr/*` e widget de foto)
+- Fluxo de sugestão e confirmação de pagamento (em `lancamentoFoto.js` e `MensagemAssistente.js`)
+- Integração WhatsApp mínima (rotas `/assistente/whatsapp/*` e página `UsuarioWhatsApp.jsx`)
 
-- Relatórios PDF/Excel e gráficos (Recharts)
-- Folha de ponto / Mão de obra
-- Integração fiscal (NF-e, NFS-e, boletos)
-- Upload de anexos e fotos da obra
-- Permissões por módulo e multiempresa
+### 🚧 Em Progresso / Próximos Passos
+1. **Serviço de Contexto Operacional** (`ContextService.js`) - Implementado como scaffolding
+2. **Serviço de Briefing Diário** (`BriefingService.js`) - Implementado como scaffolding  
+3. **Widget Genérico de Documentos** (`DocumentoWidget.jsx`) - Implementado
+4. **Integração do contexto nos rotas do assistente** - Preparado (helper functions adicionadas)
+5. **Testes de fluxo crítico** - Pendente
+6. **Integração final com LLM** - Deixada para etapa de testes finais conforme solicitado
 
-## Produção
+## Variáveis de Environment Necessárias
 
-No servico do frontend (Render/Vercel/Netlify), configure a variavel de ambiente
-`VITE_API_URL` como `https://erp-construtora-back.onrender.com` e faca um novo deploy para
-reconstruir o frontend. Em dominios `onrender.com`, o frontend tambem identifica esse
-backend automaticamente quando a variavel nao esta definida.
+Configure estas variáveis no arquivo `.env` do backend:
 
-No servico do backend no Render, configure `CORS_ORIGIN` com a URL exata do frontend
-(por exemplo, `https://erp-construtora-pog1.onrender.com`). O backend tambem inclui esse
-dominio na lista padrao; valores adicionais em `CORS_ORIGIN` sao aceitos. Configure tambem
-`FRONTEND_URL` com a URL do frontend para que links de recuperacao de senha apontem para a
-aplicacao publicada.
-
-`ADMIN_EMAIL` e `ADMIN_PASSWORD` sao usados pelo seed para criar um administrador quando
-essa conta ainda nao existe; alterar as variaveis nao redefine a senha de uma conta
-existente. Para redefinir a senha de uma conta admin existente, configure temporariamente
-`MONGO_URI`, `ADMIN_EMAIL` e `ADMIN_NEW_PASSWORD` no ambiente do backend e execute no shell
-do servico:
-
-```bash
-node scripts/reset-admin.js
+```
+MONGODB_URI=sua_connection_string_mongodb
+JWT_SECRET=sua_chave_secreta_jwt
+LLM_PROVIDER=openai  # ou gemini
+LLM_API_KEY=sua_chave_api_openai_ou_gemini
+WHATSAPP_PROVIDER=evolution  # ou meta
+WHATSAPP_TOKEN=seu_token_whatsapp
+WHATSAPP_VERIFY_TOKEN=seu_token_de_verificacao_se_aplicavel
+OLLAMA_URL=http://127.0.0.1:11434  # padrão, conforme configurado globalmente
 ```
 
-O script exige que a conta exista com papel de administrador, revoga todas as sessoes e
-exige a troca da senha no proximo login. Remova `ADMIN_NEW_PASSWORD` do ambiente apos a
-operacao; nao grave senhas ou URLs de conexao no repositorio.
+## Como Executar
 
-Configure `JWT_SECRET` no ambiente do backend com um valor aleatorio de pelo menos 32
-caracteres. Para rotaciona-lo, substitua o valor no Render e faca redeploy. Isso invalida
-os JWTs assinados com a chave antiga; o script de limpeza tambem incrementa a versao de
-todos os usuarios para revogar sessoes. Uma chave pode ser gerada com
-`node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"`;
-configure o resultado diretamente no ambiente do servico e nao o salve no repositorio.
+1. Instale dependências:
+   ```bash
+   npm run install:all
+   ```
 
-O cadastro e convite de contas e feito por administradores em `POST /api/usuarios`.
-Contas convidadas precisam definir uma senha pelo link recebido e troca-la novamente no
-primeiro login. Senhas devem ter ao menos 8 caracteres, uma letra e um numero, e nao
-podem ser comuns.
+2. Inicie o backend:
+   ```bash
+   npm run dev:backend
+   ```
 
-Para remover o usuario legado e contas com email invalido, o script e inicialmente
-somente de simulacao. Execute a partir de `backend` e confirme a exclusao:
+3. Inicie o frontend:
+   ```bash
+   npm run dev:frontend
+   ```
 
-```bash
-node scripts/cleanup-users.js
-node scripts/cleanup-users.js --apply
-```
+4. Acesse em http://localhost:5173 (ou outra porta indicada pelo Vite)
 
-Para redefinir a senha do administrador por CLI (nao existe rota HTTP para isso), defina
-`MONGO_URI`, `ADMIN_EMAIL` e `ADMIN_NEW_PASSWORD` no ambiente e execute:
+## Princípios de Design
 
-```bash
-node scripts/reset-admin.js
-```
+- **TypeScript preferencial** (manter consistência com código existente JS)
+- **Nomes em inglês no código**; português apenas em UI e mensagens
+- **Validação de entrada obrigatória**
+- **Não usar `any` sem justificativa**
+- **Erros tratados de forma centralizada**
+- **Logs estruturados em ações importantes**
+- **Preservar o design system e padrões visuais já existentes**
 
-O script exige uma senha forte, redefine a conta admin indicada por `ADMIN_EMAIL`, marca
-a troca obrigatoria no proximo login e incrementa `tokenVersion`.
+## Regras para Desenvolvimento
 
-Para trocar o email legado `admin@sienge.local` pelo email real do administrador,
-configure `MONGO_URI` e `ADMIN_EMAIL` e execute:
-
-```bash
-npm run migrate:super-admin-email
-```
-
-Isso atualiza a conta legada, exige a troca de senha e revoga suas sessoes.
-
-### Multi-tenant
-
-Configure `SUPER_ADMIN_EMAIL` com o email real do super-admin (ou use `ADMIN_EMAIL` como
-fallback); mantenha esses valores iguais ao `ADMIN_EMAIL` da conta super-admin. Para uma
-base existente cujo admin ainda usa `admin@sienge.local`, faca backup, configure as
-variaveis apontando para o MongoDB de producao em ambiente seguro e execute a migracao de
-email antes do backfill. Execute ambos **antes do deploy que exige empresas nos documentos**:
-
-```bash
-cd backend
-npm run migrate:super-admin-email
-npm run backfill:tenants
-npm run seed
-```
-
-A migracao de email so e necessaria para uma base ainda no endereco legado; ela exige
-troca de senha e revoga sessoes antigas. Em uma instalacao nova, configure `ADMIN_EMAIL`
-e `ADMIN_PASSWORD` e execute somente `npm run seed`; a empresa `Demo` e seus dados sao
-criados no mesmo tenant. O backfill cria/usa a empresa `Demo`, atribui a ela documentos ainda sem empresa,
-preenche os campos de auditoria ausentes e troca indices globais por indices unicos
-por empresa. Faça backup do MongoDB antes de executar. Todas as consultas de negocio
-sao limitadas automaticamente a empresa autenticada; o super-admin configurado pode
-administrar empresas e ignorar esse escopo. `POST /api/empresas` cria uma empresa trial,
-convida seu administrador e popula dados demonstrativos automaticamente.
-
-### Integrações de obras, compras e contratos
-
-- O avanço físico é calculado pelas etapas como valor medido (`quantidadeMedida × preço
-  unitário`) dividido pelo valor total orçado das etapas. Não há campo manual de percentual.
-- Vincule cada item de material do orçamento aprovado à sua etapa. Ao registrar uma medição,
-  a tela sugere o consumo proporcional; o estoque só é baixado após confirmação explícita.
-- Para receber um pedido, aprove-o, vincule todos os itens a materiais cadastrados e use
-  **Receber**. A operação registra entradas no estoque e cria uma conta a pagar associada ao
-  fornecedor e ao pedido; informe o vencimento no recebimento.
-- Ao criar um contrato, o sistema gera todas as parcelas de recebimento. Informe o primeiro
-  vencimento; as parcelas seguintes vencem mensalmente no mesmo dia (ou no último dia do mês
-  quando esse dia não existir). Sem data informada, a primeira parcela vence no primeiro dia
-  do próximo mês. O valor é distribuído em centavos e qualquer sobra fica na última parcela.
-- O comparativo do dashboard considera o avanço físico das etapas e o valor pago em contas
-  a pagar dividido pelo orçamento aprovado mais recente (ou o valor cadastrado na obra se
-  não houver orçamento aprovado). O percentual financeiro pode passar de 100% para evidenciar
-  estouro de orçamento.
-
-### Convites e recuperacao de senha
-
-As variaveis `SUPER_ADMIN_EMAIL` (ou `ADMIN_EMAIL`), `FRONTEND_URL`, `EMAIL_PROVIDER`,
-`RESEND_API_KEY` e `EMAIL_FROM` sao opcionais para iniciar o backend, inclusive em
-producao. `MONGO_URI` e `JWT_SECRET` com pelo menos 32 caracteres continuam obrigatorios.
-Sem email de super-admin configurado, o acesso global de super-admin nao e reconhecido.
-Sem configurar o envio de email, convites e recuperacao de senha nao enviam mensagens.
-Sem `FRONTEND_URL`, os links usam `http://localhost:5173`.
-
-Em desenvolvimento, configure `EMAIL_PROVIDER=console`; os links serao impressos no
-terminal. Em producao, configure `EMAIL_PROVIDER=resend`, `RESEND_API_KEY`, `EMAIL_FROM`
-(remetente verificado no Resend) e `FRONTEND_URL`. As rotas publicas
-`POST /api/auth/esqueci-senha` e `POST /api/auth/reset-senha` permitem recuperar o acesso;
-o pedido tem limite de tres por hora por email e responde de forma generica.
-Links de recuperacao expiram em 15 minutos e convites em 7 dias. Administradores enviam
-ou reenviam convites pela tela de usuarios. O banco guarda somente o hash SHA-256 dos
-tokens, que sao de uso unico.
-
-### Relatórios e conciliação financeira
-
-- Cadastre as contas em **Financeiro** com o saldo inicial conferido. O saldo atual reflete
-  esse saldo inicial e as baixas conciliadas; receber aumenta e pagar reduz o saldo bancário.
-- Toda baixa financeira seleciona uma conta e data efetiva; ela cria um movimento bancário
-  único e atualiza o saldo na mesma transação. Lançamentos pagos legados sem conciliação
-  podem ser conciliados posteriormente. Lançamentos conciliados ficam bloqueados para edição
-  e exclusão.
-- Recebimentos devem estar cobertos pelo saldo da conta; o sistema bloqueia uma saída que
-  deixaria o saldo negativo.
-- O financeiro pode ser exportado para CSV ou Excel por mês de vencimento. Orçamentos e
-  materiais/estoque possuem exportação Excel nas respectivas telas.
-- Em **Obras**, selecione o período e gere o PDF com avanço físico/financeiro, medições,
-  lançamentos com vencimento no período e posição atual do estoque com movimentos da obra
-  no período.
-- O Dashboard alerta estoque abaixo do mínimo, contas a pagar com vencimento entre hoje e
-  os próximos três dias e obras em andamento cujo avanço físico está mais de 10 pontos
-  percentuais abaixo do progresso linear esperado entre início e previsão de término.
-
-As conciliações usam transações MongoDB. Configure `MONGO_URI` para um replica set
-(MongoDB Atlas já oferece essa configuração); em ambiente local, configure também o
-replica set antes de testar essas operações.
-
-```bash
-cd frontend && npm run build   # gera dist/
-# sirva dist/ a partir do backend (express.static) ou hospede na Vercel/Netlify
-# backend: Render, Railway, Fly.io ou VM própria; MongoDB no Atlas
-```
-
-Na Static Site do Render, cadastre uma regra de rewrite `/*` para `/index.html` para
-que atualizar uma rota interna do SPA, como `/dashboard`, nao retorne 404. O arquivo
-`frontend/public/_redirects` serve hospedagens que suportam esse formato, mas regras do
-Render devem ser configuradas no Dashboard. Configure tambem o health check do backend
-para `/healthz`. Para evitar cold starts durante demonstracoes e vendas, use uma
-instancia web paga no Render; health checks nao substituem uma instancia que nao suspende.
-
-O formulario de login intercepta o submit com `event.preventDefault()` antes de chamar
-a API, impedindo o reload/navegacao nativa do formulario.
-
----
-Feito para estudo e ponto de partida. Substitua `JWT_SECRET` e o usuário admin antes de colocar em produção.
+- Sempre ler este arquivo e a Spec da feature antes de começar
+- Trabalhar em fatias pequenas (1 tarefa por vez)
+- Explicar o que vai fazer antes de editar arquivos
+- Não fazer commit nem push sozinha
+- Não quebrar telas ou fluxos que já funcionam
+- Ao final da sessão: atualizar a Spec com o que realmente foi implementado
+- Prefere estender o que existe a reescrever do zero

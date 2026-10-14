@@ -7,8 +7,9 @@ import rateLimit from 'express-rate-limit';
 import MensagemAssistente from '../models/MensagemAssistente.js';
 import { assistente, criarAssistenteComChave } from '../services/assistente/index.js';
 import { FERRAMENTAS_DISPONIVEIS } from '../services/assistente/LLMService.js';
-import { processarMensagemIA, executarPreviasConfirmadas } from '../services/assistente/whatsappProcessor.js';
 import mongoose from 'mongoose';
+import ContextService from '../services/ContextService.js';
+import BriefingService from '../services/BriefingService.js';
 
 const router = express.Router();
 
@@ -22,6 +23,35 @@ const chatLimiter = rateLimit({
 
 router.use(protect);
 router.use(chatLimiter);
+
+// Helper function to get operational context (preparation for LLM integration)
+async function getOperationalContextHelper(empresaId, usuarioId) {
+  try {
+    return await ContextService.getOperationalContext(empresaId, usuarioId);
+  } catch (error) {
+    console.error('[Assistente Route] Error getting operational context:', error);
+    return {
+      timestamp: new Date().toISOString(),
+      empresa: empresaId.toString(),
+      usuario: usuarioId.toString(),
+      erro: 'Falha ao carregar contexto operacional'
+    };
+  }
+}
+
+// Helper function to get briefing (preparation for LLM integration)
+async function getBriefingHelper(empresaId, usuarioId) {
+  try {
+    return await BriefingService.generateDailyBriefing(empresaId, usuarioId);
+  } catch (error) {
+    console.error('[Assistente Route] Error generating briefing:', error);
+    return {
+      sucesso: false,
+      erro: 'Falha ao gerar briefing diário',
+      timestamp: new Date().toISOString()
+    };
+  }
+}
 
 function extrairDemoFlag(instancia) {
   return instancia?.modoEmissao === 'demo';
@@ -99,6 +129,12 @@ router.post('/chat', async (req, res, next) => {
       return res.status(400).json({ error: 'Mensagem muito longa (max 2000 caracteres)' });
     }
 
+    // Prepare operational context for LLM (to be integrated in final testing phase)
+    const operationalContext = await getOperationalContextHelper(req.user.empresa, req.user.id);
+    
+    // Prepare briefing for LLM (to be integrated in final testing phase)
+    const briefingData = await getBriefingHelper(req.user.empresa, req.user.id);
+
     const instancia = (provider && apiKey)
       ? await criarAssistenteComChave(provider, apiKey)
       : assistente;
@@ -117,6 +153,8 @@ router.post('/chat', async (req, res, next) => {
       { role: 'assistant', content: msg.resposta.replace(/^🔬 MODO DEMONSTRAÇÃO\n\n/, '') }
     ]);
 
+    // TODO: In final testing phase, integrate operationalContext and briefingData into the LLM prompt
+    // For now, we keep the existing LLM call unchanged as requested
     const resultado = await instancia.conversar({
       historico: historicoFormatado,
       mensagemAtual: mensagem,
@@ -146,7 +184,6 @@ router.post('/chat', async (req, res, next) => {
   }
 });
 
-// WhatsApp IA Processor endpoint
 router.post('/whatsapp/processar', async (req, res, next) => {
   try {
     const { mensagem, anexo, usuarioWhatsAppId } = req.body || {};
@@ -184,7 +221,6 @@ router.post('/whatsapp/processar', async (req, res, next) => {
   }
 });
 
-// Executar prévias confirmadas
 router.post('/whatsapp/executar-previas', async (req, res, next) => {
   let filtro;
   let reservada = false;
