@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import api, { fmtMoeda } from '../../api.js';
+import api, { fmtMoeda } from '../api.js';
 
 const TIPOS_DOCUMENTO = {
   comprovante_abastecimento: {
@@ -168,7 +168,7 @@ function DocumentoCard({ dados, tipoDocumento, isDemo, onConfirmar, onCancelar }
           marginBottom: 8
         }}>
           🔬 MODO DEMONSTRAÇÃO
-        </>
+        </div>
       )}
       
       <TipoDocumentoBadge tipo={tipoDocumento} isDemo={isDemo} />
