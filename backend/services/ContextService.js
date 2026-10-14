@@ -3,6 +3,12 @@ import Obra from '../models/Obra.js';
 import Colaborador from '../models/Colaborador.js';
 import Licitacao from '../models/Licitacao.js';
 import DocumentoJuridico from '../models/DocumentoJuridico.js';
+import Financeiro from '../models/Financeiro.js';
+import RH from '../models/RH.js';
+import Orcamento from '../models/Orcamento.js';
+import Certidao from '../models/Certidao.js';
+import Juridico from '../models/Juridico.js';
+import PropostaLicitacao from '../models/PropostaLicitacao.js';
 
 export class ContextService {
   /**
@@ -207,7 +213,7 @@ export class ContextService {
           orcamento: o.orcamentoCliente,
           inicio: o.dataInicio,
           terminoPrevisto: o.dataTerminoPrevista
-        })),
+        })),  
         obrasComEtapasAtrasadas: obrasComEtapasAtrasadas.map(o => ({
           id: o._id,
           nome: o.nome,
@@ -327,7 +333,7 @@ export class ContextService {
           assunto: j.assunto,
           valorCausa: j.valorCausa,
           distribuicao: j.dataDistribuicao
-        })),
+        })), 
         totalCertidoesVencendo: certidoesVencendo.length,
         totalJuridicosEmAndamento: juridicosEmAndamento.length
       };

@@ -1,19 +1,18 @@
-import { ContextService } from './ContextService.js';
+import { jest } from '@jest/globals';
 
-// Mock dos modelos para teste
-// Access jest from global scope in ES modules
-global.jest.mock('../models/Lancamento.js');
-global.jest.mock('../models/Obra.js');
-global.jest.mock('../models/Colaborador.js');
-global.jest.mock('../models/Licitacao.js');
-global.jest.mock('../models/DocumentoJuridico.js');
-
-// We need to import the mocks after jest.mock calls
 import Lancamento from '../models/Lancamento.js';
 import Obra from '../models/Obra.js';
 import Colaborador from '../models/Colaborador.js';
 import Licitacao from '../models/Licitacao.js';
 import DocumentoJuridico from '../models/DocumentoJuridico.js';
+import Orcamento from '../models/Orcamento.js';
+import RH from '../models/RH.js';
+import Certidao from '../models/Certidao.js';
+import Juridico from '../models/Juridico.js';
+import PropostaLicitacao from '../models/PropostaLicitacao.js';
+import Financeiro from '../models/Financeiro.js';
+
+import { ContextService } from './ContextService.js';
 
 describe('ContextService', () => {
    const empresaId = 'empresa123';
@@ -36,7 +35,8 @@ describe('ContextService', () => {
          { _id: '2026-10-15', total: 1500, count: 2 }
        ];
 
-       Lancamento.find.mockImplementationOnce(({ empresa, status, dataVencimento }, select) => {
+       // Spy on Lancamento methods
+       jest.spyOn(Lancamento, 'find').mockImplementation(({ empresa, status, dataVencimento }, select) => {
          if (dataVencimento.$gte && dataVencimento.$lte) {
            return Promise.resolve(contasVencendoMock);
          }
@@ -46,7 +46,7 @@ describe('ContextService', () => {
          return Promise.resolve([]);
        });
 
-       Lancamento.aggregate.mockReturnValueOnce({
+       jest.spyOn(Lancamento, 'aggregate').mockReturnValueOnce({
          match: jest.fn().mockReturnThis(),
          group: jest.fn().mockReturnThis(),
          sort: jest.fn().mockReturnThis().mockReturnValueOnce(Promise.resolve(fluxoCaixaMock))
@@ -64,7 +64,7 @@ describe('ContextService', () => {
      });
 
      it('should handle errors gracefully', async () => {
-       Lancamento.find.mockRejectedValueOnce(new Error('Database error'));
+       jest.spyOn(Lancamento, 'find').mockRejectedValueOnce(new Error('Database error'));
 
        const result = await ContextService.getFinanceiroContext(empresaId);
 
@@ -85,7 +85,7 @@ describe('ContextService', () => {
            nome: 'Obra 2',
            codigo: 'OB002',
            etapasAtrasadas: [
-             { _id: 'etapa1', nome: 'Fundação', atrasoDias: 5 }
+             { _id: 'etap1', nome: 'Fundação', atrasoDias: 5 }
            ]
          }
        ];
@@ -94,9 +94,10 @@ describe('ContextService', () => {
          { _id: 'orc1', valor: 30000, totalCliente: 35000, status: 'pendente_aprovacao', dataValidade: new Date(Date.now() + 10*24*60*60*1000) }
        ];
 
-       Obra.find.mockResolvedValueOnce(obrasEmAndamentoMock);
+       // Spy on Obra methods
+       jest.spyOn(Obra, 'find').mockResolvedValueOnce(obrasEmAndamentoMock);
        
-       Obra.aggregate.mockImplementationOnce(() => ({
+       jest.spyOn(Obra, 'aggregate').mockImplementationOnce(() => ({
          match: jest.fn().mockReturnThis(),
          lookup: jest.fn().mockReturnThis(),
          addFields: jest.fn().mockReturnThis(),
@@ -104,9 +105,8 @@ describe('ContextService', () => {
          project: jest.fn().mockReturnThis().mockReturnValueOnce(Promise.resolve(obrasComEtapasAtrasadasMock))
        }));
        
-       // Mock for Orcamento.find (assuming it exists)
-       const Orcamento = require('../models/Orcamento.js');
-       Orcamento.find = jest.fn().mockResolvedValueOnce(orcamentosPendentesMock);
+       // Spy on Orcamento.find
+       jest.spyOn(Orcamento, 'find').mockResolvedValueOnce(orcamentosPendentesMock);
 
        const result = await ContextService.getObrasContext(empresaId);
 
@@ -124,8 +124,8 @@ describe('ContextService', () => {
 
    describe('getOperationalContext', () => {
      it('should combine all contexts and generate executive summary', async () => {
-       // Mock all individual context methods
-       ContextService.getFinanceiroContext = jest.fn().mockResolvedValue({
+       // Spy on all individual context methods
+       jest.spyOn(ContextService, 'getFinanceiroContext').mockResolvedValue({
          totalVencendo: 1000,
          totalVencidas: 500,
          contasVencendo: [],
@@ -133,24 +133,24 @@ describe('ContextService', () => {
          fluxoCaixaProjetado: []
        });
        
-       ContextService.getObrasContext = jest.fn().mockResolvedValue({
+       jest.spyOn(ContextService, 'getObrasContext').mockResolvedValue({
          obrasEmAndamento: [],
          obrasComEtapasAtrasadas: [],
          orcamentosPendentes: []
        });
        
-       ContextService.getRHContext = jest.fn().mockResolvedValue({
+       jest.spyOn(ContextService, 'getRHContext').mockResolvedValue({
          feriasVencidas: [],
          treinamentosPendentes: [],
          admissoesRecent: []
        });
        
-       ContextService.getJuridicoContext = jest.fn().mockResolvedValue({
+       jest.spyOn(ContextService, 'getJuridicoContext').mockResolvedValue({
          certidoesVencendo: [],
          juridicosEmAndamento: []
        });
        
-       ContextService.getLicitacoesContext = jest.fn().mockResolvedValue({
+       jest.spyOn(ContextService, 'getLicitacoesContext').mockResolvedValue({
          licitacoesEmAndamento: [],
          propostasVencendo: []
        });
@@ -173,9 +173,6 @@ describe('ContextService', () => {
        expect(ContextService.getRHContext).toHaveBeenCalledWith(empresaId, usuarioId);
        expect(ContextService.getJuridicoContext).toHaveBeenCalledWith(empresaId);
        expect(ContextService.getLicitacoesContext).toHaveBeenCalledWith(empresaId);
-      });
-    });
-  });
-});
+     });
    });
 });

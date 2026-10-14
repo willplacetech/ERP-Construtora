@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@types/pdf-parse": "^1.1.5",
-    "pdf-parse": "^1.1.1"
+    "pdf-parse": "^1.1.1",
+    "ts-jest": "^29.4.14"
   }
 }

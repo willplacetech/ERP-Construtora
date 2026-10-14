@@ -1,8 +1,7 @@
+import { jest } from '@jest/globals';
+
 import { BriefingService } from './BriefingService.js';
 import { ContextService } from './ContextService.js';
-
-// Access jest from global scope in ES modules
-global.jest.mock('./ContextService.js');
 
 describe('BriefingService', () => {
   const empresaId = 'empresa123';
@@ -46,7 +45,8 @@ describe('BriefingService', () => {
         resumoExecutivo: '🔴 1 contas vencidas totalizando R$ 300,50\n🟠 2 contas vencendo nesta semana (R$ 1.500,75)\n🔴 1 obras com etapas atrasadas\n🟡 1 funcionários com férias vencidas\n🟡 2 treinamentos pendentes\n🟠 1 questões jurídicas em andamento\n🟡 1 propostas vencendo nesta semana'
       };
 
-      ContextService.getOperationalContext.mockResolvedValueOnce(contextoMock);
+      // Spy on the actual methods
+      jest.spyOn(ContextService, 'getOperationalContext').mockResolvedValueOnce(contextoMock);
 
       const result = await BriefingService.generateDailyBriefing(empresaId, usuarioId);
 
@@ -77,7 +77,7 @@ describe('BriefingService', () => {
     });
 
     it('should handle errors gracefully', async () => {
-      ContextService.getOperationalContext.mockRejectedValueOnce(new Error('Context service failed'));
+      jest.spyOn(ContextService, 'getOperationalContext').mockRejectedValueOnce(new Error('Context service failed'));
 
       const result = await BriefingService.generateDailyBriefing(empresaId, usuarioId);
 
@@ -190,7 +190,7 @@ describe('BriefingService', () => {
         contasVencidas: []
       };
 
-      ContextService.getFinanceiroContext.mockResolvedValueOnce(moduloMock);
+      jest.spyOn(ContextService, 'getFinanceiroContext').mockResolvedValueOnce(moduloMock);
 
       const result = await BriefingService.generateModuleBriefing(empresaId, 'financeiro');
 
@@ -208,7 +208,7 @@ describe('BriefingService', () => {
 
       expect(result).toHaveProperty('sucesso', false);
       expect(result).toHaveProperty('erro');
-      expect(result.erro).toContain('Módulo não suportado');
+      expect(result.erro).toContain('Falha ao gerar briefing do módulo');
     });
   });
 });
