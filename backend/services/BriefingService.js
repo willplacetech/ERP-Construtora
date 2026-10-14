@@ -1,4 +1,4 @@
-import ContextService from './ContextService.js';
+import { ContextService } from './ContextService.js';
 import LlmService from './assistente/LlmService.js';
 
 export class BriefingService {

@@ -1,8 +1,8 @@
-import Financeiro from '../models/Financeiro.js';
+import Lancamento from '../models/Lancamento.js';
 import Obra from '../models/Obra.js';
-import RH from '../models/RH.js';
+import Colaborador from '../models/Colaborador.js';
 import Licitacao from '../models/Licitacao.js';
-import Juridico from '../models/Juridico.js';
+import DocumentoJuridico from '../models/DocumentoJuridico.js';
 
 export class ContextService {
   /**

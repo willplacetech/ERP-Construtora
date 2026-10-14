@@ -1,7 +1,8 @@
-const BriefingService = require('./BriefingService');
-const ContextService = require('./ContextService');
+import { BriefingService } from './BriefingService.js';
+import { ContextService } from './ContextService.js';
 
-jest.mock('./ContextService');
+// Access jest from global scope in ES modules
+global.jest.mock('./ContextService.js');
 
 describe('BriefingService', () => {
   const empresaId = 'empresa123';
