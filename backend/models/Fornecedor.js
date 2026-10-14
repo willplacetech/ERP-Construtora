@@ -27,7 +27,8 @@ const fornecedorSchema = new mongoose.Schema({
     agencia: String,
     conta: String,
     tipoConta: { type: String, enum: ['corrente', 'poupanca', 'pagamento'] }
-  }
+  },
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 fornecedorSchema.plugin(tenantPlugin);

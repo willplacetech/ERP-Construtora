@@ -5,6 +5,7 @@ import Lancamento from '../models/Lancamento.js';
 import { protect, adminOnly } from '../middleware/auth.js';
 import rateLimit from 'express-rate-limit';
 import MensagemAssistente from '../models/MensagemAssistente.js';
+import WhatsAppLog from '../models/WhatsAppLog.js';
 import { assistente, criarAssistenteComChave } from '../services/assistente/index.js';
 import { FERRAMENTAS_DISPONIVEIS } from '../services/assistente/LLMService.js';
 import mongoose from 'mongoose';
@@ -167,26 +168,54 @@ router.post('/webhook', async (req, res, next) => {
 
     // Prepare response to send back to WhatsApp
     let respostaTexto = resultado.resposta || 'Desculpe, nao consegui processar sua mensagem.';
-    
+
     // Add WhatsApp-specific formatting if needed
     if (resultado.requerConfirmacao && resultado.previas?.length) {
       respostaTexto += '\n\n⚠️ Esta acao requer sua confirmacao. Responda com "SIM" para confirmar ou "NAO" para cancelar.';
     }
 
+    // Check for duplicate webhook messageId to ensure idempotency
+    let mensagemDoc = null;
+    if (mensagemId) {
+      mensagemDoc = await MensagemAssistente.findOne({
+        whatsappMessageId: mensagemId,
+        empresa: finalEmpresaId
+      });
+    }
+    if (mensagemDoc) {
+      // If we already processed this message, just return success without re-saving
+      console.log('[WhatsApp Webhook] Duplicate messageId detected, returning existing response');
+      return res.status(200).json({
+        status: 'success',
+        messageId: mensagemId,
+        timestamp: mensagemDoc.createdAt?.toISOString() ?? new Date().toISOString()
+      });
+    }
+
     // Send response back to WhatsApp (implementation depends on provider)
     // For now, we'll just log it - in production, this would call the WhatsApp API to send a message
     console.log('[WhatsApp Webhook] Resposta para enviar:', respostaTexto);
-    
+
     // Save the interaction for audit trail
     await MensagemAssistente.create({
       empresa: finalEmpresaId,
       usuario: contatoId, // Using WhatsApp contact ID as user identifier
+      whatsappMessageId: mensagemId,
       pergunta: mensagem,
       resposta: resultado.resposta,
       fontes: resultado.fontes || [],
       ferramentasUsadas: resultado.ferramentasUsadas || [],
       ...(resultado.requerConfirmacao && resultado.previas?.length
         ? { confirmacao: { previas: resultado.previas } } : {})
+    });
+
+    // Log WhatsApp outbound message
+    await WhatsAppLog.create({
+      empresa: finalEmpresaId,
+      messageId: mensagemId,
+      status: 'sent',
+      tentativas: 1,
+      erro: null
     });
 
     // Return success to WhatsApp provider
@@ -282,8 +311,8 @@ router.post('/whatsapp/executar-previas', async (req, res, next) => {
     };
     // A reserva atômica impede executar a mesma prévia em dois cliques/requisições.
     const mensagem = await MensagemAssistente.findOneAndUpdate(
-      { ...filtro, 'confirmacao.status': 'pendente' },
-      { $set: { 'confirmacao.status': 'processando', 'confirmacao.dataConfirmacao': new Date() } },
+      { ...filtro, 'confirmacao.status': 'RASCUNHO' },
+      { $set: { 'confirmacao.status': 'AGUARDANDO', 'confirmacao.dataConfirmacao': new Date() } },
       { new: true }
     );
     if (!mensagem) return res.status(409).json({ error: 'Previa indisponivel ou ja confirmada' });
@@ -296,7 +325,7 @@ router.post('/whatsapp/executar-previas', async (req, res, next) => {
     );
 
     await MensagemAssistente.updateOne(filtro, {
-      $set: { 'confirmacao.status': 'concluida', 'confirmacao.resultados': resultados }
+      $set: { 'confirmacao.status': 'CONFIRMADO', 'confirmacao.resultados': resultados }
     });
     return res.json({ resultados });
   } catch (err) {
@@ -304,8 +333,8 @@ router.post('/whatsapp/executar-previas', async (req, res, next) => {
       // Não libera para nova execução: uma falha pode ocorrer após uma gravação parcial.
       try {
         await MensagemAssistente.updateOne(filtro, {
-          $set: { 'confirmacao.status': 'erro', 'confirmacao.erro': err.message }
-        );
+          $set: { 'confirmacao.status': 'CANCELADO', 'confirmacao.erro': err.message }
+        });
       } catch { /* Mantém a reserva se não for possível registrar o erro. */ }
     }
     return next(err);

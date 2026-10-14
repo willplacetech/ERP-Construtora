@@ -8,7 +8,7 @@ const lancamentoSchema = new mongoose.Schema({
   valor: { type: Number, required: true, min: 0.01 },
   dataVencimento: { type: Date, required: true },
   dataPagamento: Date,
-  status: { type: String, enum: ['pendente', 'pago', 'atrasado'], default: 'pendente' },
+  status: { type: String, default: 'pendente' },
   obra: { type: mongoose.Schema.Types.ObjectId, ref: 'Obra' },
   cliente: { type: mongoose.Schema.Types.ObjectId, ref: 'Cliente' },
   fornecedor: String,

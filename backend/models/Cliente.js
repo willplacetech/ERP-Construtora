@@ -24,7 +24,8 @@ const clienteSchema = new mongoose.Schema({
     agencia: String,
     conta: String,
     tipoConta: { type: String, enum: ['corrente', 'poupanca', 'pagamento'] }
-  }
+  },
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 clienteSchema.index({ empresa: 1, documento: 1 }, { unique: true, partialFilterExpression: { documento: { $type: 'string' } } });

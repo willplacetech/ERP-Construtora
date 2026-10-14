@@ -15,6 +15,7 @@ import PedidoCompra from './models/PedidoCompra.js';
 import PasswordReset from './models/PasswordReset.js';
 import ContaBancaria from './models/ContaBancaria.js';
 import MovimentoBancario from './models/MovimentoBancario.js';
+import Lookup from './models/Lookup.js';
 import { runWithTenant } from './middleware/tenantContext.js';
 import { seedDemoCompany } from './services/demoCompany.js';
 import { isValidEmail, passwordError } from './utils/security.js';
@@ -86,7 +87,31 @@ const result = await runWithTenant({
   if (!demo.criadoPor) demo.criadoPor = admin._id;
   demo.alteradoPor = admin._id;
   await demo.save();
-  await seedDemoCompany(demo, admin._id);
+   // Seed lookup data (parametrizable cadastros)
+   await Lookup.insertMany([
+     // Lancamento tipo
+     { empresa: demo._id, tipo: 'tipo_lancamento', chave: 'pagar', valor: 'Pagar', ativo: true },
+     { empresa: demo._id, tipo: 'tipo_lancamento', chave: 'receber', valor: 'Receber', ativo: true },
+     // Lancamento status
+     { empresa: demo._id, tipo: 'status_lancamento', chave: 'pendente', valor: 'Pendente', ativo: true },
+     { empresa: demo._id, tipo: 'status_lancamento', chave: 'pago', valor: 'Pago', ativo: true },
+     { empresa: demo._id, tipo: 'status_lancamento', chave: 'atrasado', valor: 'Atrasado', ativo: true },
+     // Fornecedor status
+     { empresa: demo._id, tipo: 'status_fornecedor', chave: 'ativo', valor: 'Ativo', ativo: true },
+     { empresa: demo._id, tipo: 'status_fornecedor', chave: 'inativo', valor: 'Inativo', ativo: true },
+     // User role
+     { empresa: demo._id, tipo: 'role_usuario', chave: 'admin', valor: 'Administrador', ativo: true },
+     { empresa: demo._id, tipo: 'role_usuario', chave: 'usuario', valor: 'Usuário', ativo: true },
+     // Fornecedor categoria
+     { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'material', valor: 'Material', ativo: true },
+     { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'servico', valor: 'Serviço', ativo: true },
+     { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'combustivel', valor: 'Combustível', ativo: true }
+   ]).catch(err => {
+     // Ignore duplicate key errors
+     if (err.code !== 11000) throw err;
+   });
+
+   await seedDemoCompany(demo, admin._id);
   return { admin, created };
 });
 

@@ -7,13 +7,14 @@ import { isValidEmail } from '../utils/security.js';
 import { sendInvitation } from '../services/invitations.js';
 import { randomBytes } from 'node:crypto';
 import { isJuridicoPermissionList } from '../services/juridico/permissions.js';
+import { auditAction } from '../services/auditService.js';
 
 const router = express.Router();
 router.use(protect);
 
 router.get('/', adminOnly, async (req, res, next) => {
   try {
-    const users = await User.find().sort({ nome: 1 }).select('-senha');
+    const users = await User.find({ deletedAt: null }).sort({ nome: 1 }).select('-senha');
     res.json(users);
   } catch (err) { next(err); }
 });
@@ -28,7 +29,7 @@ router.post('/', adminOnly, async (req, res, next) => {
       return res.status(400).json({ error: 'Permissoes juridicas invalidas' });
     }
     if (ativo === false) return res.status(400).json({ error: 'Ative o usuario para enviar o convite por email' });
-    const exists = await User.findOne({ email: emailNormalizado });
+    const exists = await User.findOne({ email: emailNormalizado, deletedAt: null });
     if (exists) return res.status(400).json({ error: 'Email ja cadastrado' });
     const user = await User.create({
       nome: String(nome).trim(),
@@ -40,10 +41,33 @@ router.post('/', adminOnly, async (req, res, next) => {
       permissoesJuridico: permissoesJuridico || [],
       obras: Array.isArray(obras) ? obras : []
     });
+    // Audit user creation
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'create',
+      modelo: 'User',
+      documentoId: user._id,
+      depois: user.toObject ? user.toObject() : user
+    });
     try {
       await sendInvitation(user);
     } catch (err) {
-      await User.findByIdAndDelete(user._id);
+      // Audit deletion due to failed invitation
+      await auditAction({
+        empresaId: req.user.empresa,
+        usuarioId: req.user.id,
+        acao: 'delete',
+        modelo: 'User',
+        documentoId: user._id,
+        antes: user.toObject ? user.toObject() : user,
+        depois: { ...user.toObject ? user.toObject() : user, deletedAt: new Date() }
+      });
+      await User.findByIdAndUpdate(
+        user._id,
+        { deletedAt: new Date() },
+        { new: true }
+      );
       throw err;
     }
     res.status(201).json({
@@ -65,7 +89,7 @@ router.post('/', adminOnly, async (req, res, next) => {
 
 router.post('/:id/convite', adminOnly, async (req, res, next) => {
   try {
-    const user = await User.findById(req.params.id);
+    const user = await User.findOne({ _id: req.params.id, deletedAt: null });
     if (!user) return res.status(404).json({ error: 'Usuario nao encontrado' });
     if (user.superAdmin && !req.user.superAdmin) {
       return res.status(403).json({ error: 'Somente o super-administrador pode alterar esta conta' });
@@ -85,12 +109,13 @@ router.post('/:id/convite', adminOnly, async (req, res, next) => {
 
 router.put('/:id', adminOnly, async (req, res, next) => {
   try {
-    const user = await User.findById(req.params.id);
+    const user = await User.findOne({ _id: req.params.id, deletedAt: null });
     if (!user) return res.status(404).json({ error: 'Usuario nao encontrado' });
     if (user.superAdmin && !req.user.superAdmin) {
       return res.status(403).json({ error: 'Somente o super-administrador pode alterar esta conta' });
     }
 
+    const antes = user.toObject ? user.toObject() : user;
     const payload = pick(req.body || {}, ['nome', 'email', 'role', 'ativo', 'obras', 'permissoesJuridico']);
     if (payload.permissoesJuridico !== undefined && !isJuridicoPermissionList(payload.permissoesJuridico)) {
       return res.status(400).json({ error: 'Permissoes juridicas invalidas' });
@@ -106,6 +131,17 @@ router.put('/:id', adminOnly, async (req, res, next) => {
     if (payload.permissoesJuridico !== undefined) user.permissoesJuridico = [...new Set(payload.permissoesJuridico)];
 
     await user.save();
+    // Audit update
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'update',
+      modelo: 'User',
+      documentoId: user._id,
+      antes,
+      depois: user.toObject ? user.toObject() : user
+    });
+
     res.json({
       id: user._id,
       nome: user.nome,
@@ -122,12 +158,26 @@ router.put('/:id', adminOnly, async (req, res, next) => {
 router.delete('/:id', adminOnly, async (req, res, next) => {
   try {
     if (req.user.id === req.params.id) return res.status(400).json({ error: 'Nao e possivel excluir o proprio usuario' });
-    const user = await User.findById(req.params.id);
+    const user = await User.findOne({ _id: req.params.id, deletedAt: null });
     if (!user) return res.status(404).json({ error: 'Usuario nao encontrado' });
     if (user.superAdmin && !req.user.superAdmin) {
       return res.status(403).json({ error: 'Somente o super-administrador pode excluir esta conta' });
     }
-    await user.deleteOne();
+
+    const antes = user.toObject ? user.toObject() : user;
+    user.deletedAt = new Date();
+    await user.save();
+    // Audit delete
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'delete',
+      modelo: 'User',
+      documentoId: user._id,
+      antes,
+      depois: user.toObject ? user.toObject() : user
+    });
+
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
