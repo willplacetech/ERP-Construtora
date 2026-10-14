@@ -1,17 +1,18 @@
-import assert from 'node:assert/strict';
-import test from 'node:test';
+import { jest } from '@jest/globals';
 import { hasJuridicoPermission } from './permissions.js';
 
-test('deniesUnlistedPermission', () => {
-  assert.equal(hasJuridicoPermission({ role: 'usuario', permissoesJuridico: [] }, 'visualizar'), false);
-});
+describe('hasJuridicoPermission', () => {
+    test('deniesUnlistedPermission', () => {
+        expect(hasJuridicoPermission({ role: 'usuario', permissoesJuridico: [] }, 'visualizar')).toBe(false);
+    });
 
-test('allowsOnlyExplicitGrantedPermission', () => {
-  const user = { role: 'usuario', permissoesJuridico: ['visualizar'] };
-  assert.equal(hasJuridicoPermission(user, 'visualizar'), true);
-  assert.equal(hasJuridicoPermission(user, 'baixar'), false);
-});
+    test('allowsOnlyExplicitGrantedPermission', () => {
+        const user = { role: 'usuario', permissoesJuridico: ['visualizar'] };
+        expect(hasJuridicoPermission(user, 'visualizar')).toBe(true);
+        expect(hasJuridicoPermission(user, 'baixar')).toBe(false);
+    });
 
-test('rejectsUnknownPermission', () => {
-  assert.equal(hasJuridicoPermission({ role: 'admin' }, 'superuser'), false);
+    test('rejectsUnknownPermission', () => {
+        expect(hasJuridicoPermission({ role: 'admin' }, 'superuser')).toBe(false);
+    });
 });
