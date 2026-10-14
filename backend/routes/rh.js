@@ -4,6 +4,42 @@ import Veiculo from '../models/Veiculo.js';
 import Ferias from '../models/Ferias.js';
 import AlertaRH from '../models/AlertaRH.js';
 import Colaborador from '../models/Colaborador.js';
+import mongoose from 'mongoose';
+
+// Validation helpers
+function validId(value) {
+  return typeof value === 'string' && mongoose.isValidObjectId(value);
+}
+
+function requestPayload(body, allowedFields) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    const error = new Error('Corpo da requisicao invalido');
+    error.status = 400;
+    throw error;
+  }
+  
+  const payload = {};
+  for (const field of allowedFields) {
+    if (Object.hasOwn(body, field)) {
+      payload[field] = body[field];
+    }
+  }
+  
+  const unknownFields = Object.keys(body).filter((field) => !allowedFields.includes(field));
+  if (unknownFields.length) {
+    const error = new Error(`Campo nao permitido: ${unknownFields[0]}`);
+    error.status = 400;
+    throw error;
+  }
+  
+  if (!Object.keys(payload).length) {
+    const error = new Error('Informe ao menos um campo valido');
+    error.status = 400;
+    throw error;
+  }
+  
+  return payload;
+}
 
 const router = express.Router();
 router.use(protect);
@@ -23,6 +59,9 @@ router.get('/veiculos', async (req, res, next) => {
 
 router.get('/veiculos/:id', async (req, res, next) => {
   try {
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' });
+    }
     const veiculo = await Veiculo.findById(req.params.id).populate('empresa', 'nome');
     if (!veiculo) return res.status(404).json({ error: 'Veículo não encontrado' });
     res.json({ veiculo });
@@ -31,21 +70,27 @@ router.get('/veiculos/:id', async (req, res, next) => {
 
 router.post('/veiculos', async (req, res, next) => {
   try {
-    const { placa, modelo, marca, ano, tipo, capacidade, combustivel, renavam, chassi, empresa, status, kmAtual, dataAquisicao, valorAquisicao, seguroVencimento, licenciamentoVencimento, observacao } = req.body;
+    const payload = requestPayload(req.body, ['placa', 'modelo', 'marca', 'ano', 'tipo', 'capacidade', 'combustivel', 'renavam', 'chassi', 'empresa', 'status', 'kmAtual', 'dataAquisicao', 'valorAquisicao', 'seguroVencimento', 'licenciamentoVencimento', 'observacao']);
+    if (!mongoose.isValidObjectId(payload.empresa)) {
+      return res.status(400).json({ error: 'Empresa invalida' });
+    }
     if (!placa || !modelo || !tipo || !empresa) {
       return res.status(400).json({ error: 'Campos obrigatórios: placa, modelo, tipo, empresa' });
     }
-    const existente = await Veiculo.findOne({ placa: placa.toUpperCase() });
+    const existente = await Veiculo.findOne({ placa: payload.placa.toUpperCase() });
     if (existente) return res.status(409).json({ error: 'Placa já cadastrada' });
-    const veiculo = await Veiculo.create({ placa: placa.toUpperCase(), modelo, marca, ano, tipo, capacidade, combustivel, renavam, chassi, empresa, status, kmAtual, dataAquisicao, valorAquisicao, seguroVencimento, licenciamentoVencimento, observacao });
+    const veiculo = await Veiculo.create({ ...payload, placa: payload.placa.toUpperCase() });
     res.status(201).json({ veiculo });
   } catch (err) { next(err); }
 });
 
 router.put('/veiculos/:id', async (req, res, next) => {
   try {
-    const { modelo, marca, ano, tipo, capacidade, combustivel, renavam, chassi, status, kmAtual, dataAquisicao, valorAquisicao, seguroVencimento, licenciamentoVencimento, observacao } = req.body;
-    const veiculo = await Veiculo.findByIdAndUpdate(req.params.id, { modelo, marca, ano, tipo, capacidade, combustivel, renavam, chassi, status, kmAtual, dataAquisicao, valorAquisicao, seguroVencimento, licenciamentoVencimento, observacao }, { new: true, runValidators: true });
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' });
+    }
+    const payload = requestPayload(req.body, ['modelo', 'marca', 'ano', 'tipo', 'capacidade', 'combustivel', 'renavam', 'chassi', 'status', 'kmAtual', 'dataAquisicao', 'valorAquisicao', 'seguroVencimento', 'licenciamentoVencimento', 'observacao']);
+    const veiculo = await Veiculo.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true });
     if (!veiculo) return res.status(404).json({ error: 'Veículo não encontrado' });
     res.json({ veiculo });
   } catch (err) { next(err); }
@@ -53,6 +98,9 @@ router.put('/veiculos/:id', async (req, res, next) => {
 
 router.delete('/veiculos/:id', async (req, res, next) => {
   try {
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' });
+    }
     const veiculo = await Veiculo.findByIdAndDelete(req.params.id);
     if (!veiculo) return res.status(404).json({ error: 'Veículo não encontrado' });
     res.json({ message: 'Veículo removido' });
@@ -62,140 +110,255 @@ router.delete('/veiculos/:id', async (req, res, next) => {
 // FÉRIAS
 router.get('/ferias', async (req, res, next) => {
   try {
-    const { empresa, colaborador, status, dataInicio, dataFim } = req.query;
+    const { colaborador, status, dataInicio, dataFim } = req.query;
     const filtro = {};
     if (colaborador) filtro.colaborador = colaborador;
     if (status) filtro.status = status;
     if (dataInicio || dataFim) {
-      filtro.inicio = {};
-      if (dataInicio) filtro.inicio.$gte = new Date(dataInicio);
-      if (dataFim) filtro.inicio.$lte = new Date(dataFim);
+      filtro.dataInicio = {};
+      if (dataInicio) {
+        const inicio = new Date(dataInicio);
+        if (Number.isNaN(inicio.getTime())) {
+          return res.status(400).json({ error: 'Data de inicio invalida' });
+        }
+        filtro.dataInicio.$gte = inicio;
+      }
+      if (dataFim) {
+        const fim = new Date(dataFim);
+        if (Number.isNaN(fim.getTime())) {
+          return res.status(400).json({ error: 'Data de fim invalida' });
+        }
+        filtro.dataInicio.$lte = fim;
+      }
     }
-    const ferias = await Ferias.find(filtro)
-      .populate('colaborador', 'nome cpf funcao status')
-      .populate('criadoPor', 'nome')
-      .sort({ inicio: -1 });
+    const ferias = await Ferias.find(filtro).populate('colaborador', 'nome').sort({ dataInicio: -1 });
     res.json({ ferias });
   } catch (err) { next(err); }
 });
 
 router.get('/ferias/:id', async (req, res, next) => {
   try {
-    const ferias = await Ferias.findById(req.params.id)
-      .populate('colaborador', 'nome cpf funcao status dataAdmissao')
-      .populate('criadoPor', 'nome');
-    if (!ferias) return res.status(404).json({ error: 'Registro de férias não encontrado' });
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' });
+    }
+    const ferias = await Ferias.findById(req.params.id).populate('colaborador', 'nome');
+    if (!ferias) return res.status(404).json({ error: 'Férias não encontradas' });
     res.json({ ferias });
   } catch (err) { next(err); }
 });
 
 router.post('/ferias', async (req, res, next) => {
   try {
-    const { colaborador, periodoAquisitivoInicio, periodoAquisitivoFim, inicio, fim, dias, status, arquivoComunicacao, arquivoRecibo, observacao } = req.body;
-    if (!colaborador || !periodoAquisitivoInicio || !periodoAquisitivoFim || !inicio || !fim || !dias) {
-      return res.status(400).json({ error: 'Campos obrigatórios: colaborador, periodoAquisitivoInicio, periodoAquisitivoFim, inicio, fim, dias' });
+    const payload = requestPayload(req.body, ['colaborador', 'dataInicio', 'dataFim', 'tipo', 'status', 'observacao']);
+    if (!mongoose.isValidObjectId(payload.colaborador)) {
+      return res.status(400).json({ error: 'Colaborador invalido' });
     }
-    const ferias = await Ferias.create({ colaborador, periodoAquisitivoInicio, periodoAquisitivoFim, inicio, fim, dias, status, arquivoComunicacao, arquivoRecibo, observacao, criadoPor: req.user.id });
+    const dataInicio = new Date(payload.dataInicio);
+    const dataFim = new Date(payload.dataFim);
+    if (Number.isNaN(dataInicio.getTime()) || Number.isNaN(dataFim.getTime())) {
+      return res.status(400).json({ error: 'Data invalida' });
+    }
+    if (dataFim <= dataInicio) {
+      return res.status(400).json({ error: 'Data de fim deve ser posterior à data de inicio' });
+    }
+    const ferias = await Ferias.create({ ...payload, dataInicio, dataFim });
     res.status(201).json({ ferias });
   } catch (err) { next(err); }
 });
 
 router.put('/ferias/:id', async (req, res, next) => {
   try {
-    const { periodoAquisitivoInicio, periodoAquisitivoFim, inicio, fim, dias, status, arquivoComunicacao, arquivoRecibo, observacao } = req.body;
-    const ferias = await Ferias.findByIdAndUpdate(req.params.id, { periodoAquisitivoInicio, periodoAquisitivoFim, inicio, fim, dias, status, arquivoComunicacao, arquivoRecibo, observacao }, { new: true, runValidators: true });
-    if (!ferias) return res.status(404).json({ error: 'Registro de férias não encontrado' });
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' });
+    }
+    const payload = requestPayload(req.body, ['dataInicio', 'dataFim', 'tipo', 'status', 'observacao']);
+    const dataInicio = payload.dataInicio ? new Date(payload.dataInicio) : undefined;
+    const dataFim = payload.dataFim ? new Date(payload.dataFim) : undefined;
+    if ((dataInicio && Number.isNaN(dataInicio.getTime())) || (dataFim && Number.isNaN(dataFim.getTime()))) {
+      return res.status(400).json({ error: 'Data invalida' });
+    }
+    if (dataInicio && dataFim && dataFim <= dataInicio) {
+      return res.status(400).json({ error: 'Data de fim deve ser posterior à data de inicio' });
+    }
+    const ferias = await Ferias.findByIdAndUpdate(req.params.id, { ...payload, dataInicio, dataFim }, { new: true, runValidators: true });
+    if (!ferias) return res.status(404).json({ error: 'Férias não encontradas' });
     res.json({ ferias });
   } catch (err) { next(err); }
 });
 
 router.delete('/ferias/:id', async (req, res, next) => {
   try {
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' });
+    }
     const ferias = await Ferias.findByIdAndDelete(req.params.id);
-    if (!ferias) return res.status(404).json({ error: 'Registro de férias não encontrado' });
-    res.json({ message: 'Registro de férias removido' });
+    if (!ferias) return res.status(404).json({ error: 'Férias não encontradas' });
+    res.json({ message: 'Férias removidas' });
   } catch (err) { next(err); }
 });
 
 // ALERTAS RH
 router.get('/alertas-rh', async (req, res, next) => {
   try {
-    const { empresa, colaborador, tipo, status, canal } = req.query;
+    const { colaborador, tipo, status, dataInicio, dataFim } = req.query;
     const filtro = {};
     if (colaborador) filtro.colaborador = colaborador;
     if (tipo) filtro.tipo = tipo;
     if (status) filtro.status = status;
-    if (canal) filtro.canal = canal;
-    const alertas = await AlertaRH.find(filtro)
-      .populate('colaborador', 'nome cpf funcao status')
-      .populate('destinatarios', 'nome email')
-      .populate('criadoPor', 'nome')
-      .sort({ dataEnvio: -1 });
+    if (dataInicio || dataFim) {
+      filtro.data = {};
+      if (dataInicio) {
+        const inicio = new Date(dataInicio);
+        if (Number.isNaN(inicio.getTime())) {
+          return res.status(400).json({ error: 'Data de inicio invalida' });
+        }
+        filtro.data.$gte = inicio;
+      }
+      if (dataFim) {
+        const fim = new Date(dataFim);
+        if (Number.isNaN(fim.getTime())) {
+          return res.status(400).json({ error: 'Data de fim invalida' );
+        }
+        filtro.data.$lte = fim;
+      }
+    }
+    alertas = await AlertaRH.find(filtro).populate('colaborador', 'nome').sort({ data: -1 });
     res.json({ alertas });
   } catch (err) { next(err); }
 });
 
 router.get('/alertas-rh/:id', async (req, res, next) => {
   try {
-    const alerta = await AlertaRH.findById(req.params.id)
-      .populate('colaborador', 'nome cpf funcao status dataAdmissao')
-      .populate('destinatarios', 'nome email')
-      .populate('criadoPor', 'nome');
-    if (!alerta) return res.status(404).json({ error: 'Alerta não encontrado' });
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' );
+    }
+    const alerta = await AlertaRH.findById(req.params.id).populate('colaborador', 'nome');
+    if (!alerta) return res.status(404).json({ error: 'Alerta RH não encontrado' });
     res.json({ alerta });
   } catch (err) { next(err); }
 });
 
 router.post('/alertas-rh', async (req, res, next) => {
   try {
-    const { colaborador, tipo, titulo, mensagem, dataReferencia, canal, destinatarios, deduplicacaoChave } = req.body;
-    if (!colaborador || !tipo || !titulo || !mensagem) {
-      return res.status(400).json({ error: 'Campos obrigatórios: colaborador, tipo, titulo, mensagem' });
+    const payload = requestPayload(req.body, ['colaborador', 'tipo', 'mensagem', 'status', 'dataVencimento']);
+    if (!mongoose.isValidObjectId(payload.colaborador)) {
+      return res.status(400).json({ error: 'Colaborador invalido' });
     }
-    if (deduplicacaoChave) {
-      const existente = await AlertaRH.findOne({ deduplicacaoChave });
-      if (existente) return res.status(409).json({ error: 'Já existe alerta com esta chave de deduplicação', alerta: existente });
+    const dataVencimento = payload.dataVencimento ? new Date(payload.dataVencimento) : undefined;
+    if (dataVencimento && Number.isNaN(dataVencimento.getTime())) {
+      return res.status(400).json({ error: 'Data de vencimento invalida' });
     }
-    const alerta = await AlertaRH.create({ colaborador, tipo, titulo, mensagem, dataReferencia, canal, destinatarios, deduplicacaoChave, criadoPor: req.user.id });
+    const alerta = await AlertaRH.create({ ...payload, dataVencimento });
     res.status(201).json({ alerta });
   } catch (err) { next(err); }
 });
 
 router.put('/alertas-rh/:id', async (req, res, next) => {
   try {
-    const { status, canal, destinatarios, resposta } = req.body;
-    const update = { status, canal, destinatarios, resposta };
-    if (status === 'respondido') { update.respondidoPor = req.user.id; update.respondidoEm = new Date(); }
-    if (status === 'enviado') update.dataEnvio = new Date();
-    const alerta = await AlertaRH.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
-    if (!alerta) return res.status(404).json({ error: 'Alerta não encontrado' });
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' );
+    }
+    const payload = requestPayload(req.body, ['tipo', 'mensagem', 'status', 'dataVencimento']);
+    const dataVencimento = payload.dataVencimento ? new Date(payload.dataVencimento) : undefined;
+    if (dataVencimento && Number.isNaN(dataVencimento.getTime())) {
+      return res.status(400).json({ error: 'Data de vencimento invalida' });
+    }
+    const alerta = await AlertaRH.findByIdAndUpdate(req.params.id, { ...payload, dataVencimento }, { new: true, runValidators: true });
+    if (!alerta) return res.status(404).json({ error: 'Alerta RH não encontrado' });
     res.json({ alerta });
   } catch (err) { next(err); }
 });
 
 router.delete('/alertas-rh/:id', async (req, res, next) => {
   try {
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' );
+    }
     const alerta = await AlertaRH.findByIdAndDelete(req.params.id);
-    if (!alerta) return res.status(404).json({ error: 'Alerta não encontrado' });
-    res.json({ message: 'Alerta removido' });
+    if (!alerta) return res.status(404).json({ error: 'Alerta RH não encontrado' });
+    res.json({ message: 'Alerta RH removido' });
   } catch (err) { next(err); }
 });
 
-// RELATÓRIO RH
-router.get('/relatorio', async (req, res, next) => {
+// COLABORADORES
+router.get('/colaboradores', async (req, res, next) => {
   try {
-    const { empresa } = req.query;
+    const { cargo, status, dataAdmissaoInicio, dataAdmissaoFim } = req.query;
     const filtro = {};
-    if (empresa) filtro.empresa = empresa;
-    const [colaboradores, ferias, alertas, veiculos] = await Promise.all([
-      Colaborador.countDocuments(filtro),
-      Ferias.countDocuments(filtro),
-      AlertaRH.countDocuments(filtro),
-      Veiculo.countDocuments(filtro)
-    ]);
-    const ativos = await Colaborador.countDocuments({ ...filtro, status: 'ativo' });
-    const inativos = await Colaborador.countDocuments({ ...filtro, status: { $in: ['afastado', 'demitido'] } });
-    res.json({ totais: { colaboradores, ativos, inativos, ferias, alertas, veiculos } });
+    if (cargo) filtro.cargo = cargo;
+    if (status) filtro.status = status;
+    if (dataAdmissaoInicio || dataAdmissaoFim) {
+      filtro.dataAdmissao = {};
+      if (dataAdmissaoInicio) {
+        const inicio = new Date(dataAdmissaoInicio);
+        if (Number.isNaN(inicio.getTime())) {
+          return res.status(400).json({ error: 'Data de admissao inicio invalida' );
+        }
+        filtro.dataAdmissao.$gte = inicio;
+      }
+      if (dataAdmissaoFim) {
+        const fim = new Date(dataAdmissaoFim);
+        if (Number.isNaN(fim.getTime())) {
+          return res.status(400).json({ error: 'Data de admissao fim invalida' );
+        }
+        filtro.dataAdmissao.$lte = fim;
+      }
+    }
+    const colaboradores = await Colaborador.find(filtro).sort({ nome: 1 });
+    res.json({ colaboradores });
+  } catch (err) { next(err); }
+});
+
+router.get('/colaboradores/:id', async (req, res, next) => {
+  try {
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' );
+    }
+    const colaborador = await Colaborador.findById(req.params.id);
+    if (!colaborador) return res.status(404).json({ error: 'Colaborador não encontrado' );
+    res.json({ colaborador });
+  } catch (err) { next(err); }
+});
+
+router.post('/colaboradores', async (req, res, next) => {
+  try {
+    const payload = requestPayload(req.body, ['nome', 'cargo', 'salario', 'dataAdmissao', 'status', 'cpf', 'rg', 'endereco', 'telefone', 'email', 'observacao']);
+    if (!payload.nome || !payload.cargo || !payload.dataAdmissao) {
+      return res.status(400).json({ error: 'Campos obrigatórios: nome, cargo, dataAdmissao' });
+    }
+    const dataAdmissao = new Date(payload.dataAdmissao);
+    if (Number.isNaN(dataAdmissao.getTime())) {
+      return res.status(400).json({ error: 'Data de admissao invalida' );
+    }
+    const colaborador = await Colaborador.create({ ...payload, dataAdmissao });
+    res.status(201).json({ colaborador });
+  } catch (err) { next(err); }
+});
+
+router.put('/colaboradores/:id', async (req, res, next) => {
+  try {
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' );
+    }
+    const payload = requestPayload(req.body, ['nome', 'cargo', 'salario', 'dataAdmissao', 'status', 'cpf', 'rg', 'endereco', 'telefone', 'email', 'observacao']);
+    const dataAdmissao = payload.dataAdmissao ? new Date(payload.dataAdmissao) : undefined;
+    if (dataAdmissao && Number.isNaN(dataAdmissao.getTime())) {
+      return res.status(400).json({ error: 'Data de admissao invalida' );
+    }
+    const colaborador = await Colaborador.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true });
+    if (!colaborador) return res.status(404).json({ error: 'Colaborador não encontrado' );
+    res.json({ colaborador });
+  } catch (err) { next(err); }
+});
+
+router.delete('/colaboradores/:id', async (req, res, next) => {
+  try {
+    if (!validId(req.params.id)) {
+      return res.status(400).json({ error: 'Identificador invalido' );
+    }
+    const colaborador = await Colaborador.findByIdAndDelete(req.params.id);
+    if (!colaborador) return res.status(404).json({ error: 'Colaborador não encontrado' );
+    res.json({ message: 'Colaborador removido' });
   } catch (err) { next(err); }
 });
 

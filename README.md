@@ -28,36 +28,48 @@ Sempre preparar a ação, mostrar o resumo e pedir confirmação explícita (Wha
 ```
 backend/
 ├── routes/
-│   ├── assistente.js     # Rotas do assistente (chat, OCR, WhatsApp)
+│   ├── assistente.js     # Rotas do assistente (chat, OCR, WhatsApp, webhook)
+│   ├── lancamentoFoto.js # Rotas para upload e confirmacao de comprovantes
+│   ├── arquivoDocumento.js # Rotas para gerenciamento de arquivos
 │   └── ...               # Outras rotas existentes
 ├── services/
 │   ├── ContextService.js         # Serviço para obter contexto operacional
 │   ├── BriefingService.js        # Serviço para gerar briefing diário
 │   ├── assistente/
 │   │   ├── LlmService.js         # Interface com LLMs (OpenAI/Gemini)
-│   │   ├── extratorFoto.js       # Extração de dados de documentos
-│   │   └── whatsappProcessor.js  # Processamento de mensagens WhatsApp
+│   │   ├── OpenAIAssistente.js   # Implementação OpenAI
+│   │   ├── GeminiAssistente.js   # Implementação Gemini
+│   │   ├── MockAssistente.js     # Implementação de demonstração
+│   │   ├── index.js              # Factory para criar assistentes
+│   │   ├── extratorFoto.js       # OCR e extração de documentos
+│   │   ├── whatsappProcessor.js  # Processamento de mensagens WhatsApp
+│   │   └── ferramentas.js        # Funções de ferramentas disponíveis para o LLM
 │   └── index.js                  # Export dos serviços
 ├── models/
-│   ├── Lancamento.js             # Modelo de lançamentos financeiros
 │   ├── MensagemAssistente.js     # Modelo de mensagens do assistente
+│   ├── Lancamento.js             # Modelo de lançamentos financeiros
+│   ├── Obra.js                   # Modelo de obras
+│   ├── ArquivoDocumento.js       # Modelo de arquivos (com hash, versionamento, acesso seguro)
+│   ├── LancamentoFoto.js         # Modelo de fotos de lancamento (referencia ArquivoDocumento)
 │   └── ...                       # Outros modelos existentes
 └── server.js                     # Entrada da aplicação
 
 frontend/
-├── src/
-│   ├── pages/
-│   │   ├── Assistente.jsx        # Página principal do assistente (consultas)
-│   │   ├── WhatsApp.jsx          # Página de lançamentos e WhatsApp
-│   │   └── UsuarioWhatsApp.jsx   # Configuração do WhatsApp
-│   │
-│   ├── components/
-│   │   └── DocumentoWidget.jsx   # Widget genérico para processamento de documentos
-│   │
-│   ├── context/                  # Contextos React (Auth, etc.)
-│   ├── utils/                    # Utilitários
-│   ├── App.jsx                   # Componente principal
-│   └── main.jsx                  # Ponto de entrada
+└── src/
+    ├── pages/
+    │   ├── Assistente.jsx                 # Página principal (abas)
+    │   ├── pages/
+    │   │   ├── Dashboard/Assistente.jsx   # Aba "Consultas e alertas"
+    │   │   ├── WhatsApp.jsx               # Página de lançamentos e WhatsApp
+    │   │   └── UsuarioWhatsApp.jsx        # Configuração do WhatsApp
+    │
+    ├── components/
+    │   └── DocumentoWidget.jsx            # Widget genérico para processamento de documentos (NOVO)
+    │
+    ├── context/                           # Contextos React (Auth, etc.)
+    ├── utils/                             # Utilitários (api.js, fmtMoeda, etc.)
+    ├── App.jsx                            # Componente principal
+    └── main.jsx                           # Ponto de entrada
 ```
 
 ## Stack Tecnológico (Confirmado)
@@ -67,8 +79,8 @@ frontend/
 - **Banco de Dados**: MongoDB via Mongoose
 - **Autenticação**: JWT + roles
 - **Assistente de IA**: Integração com OpenAI e/ou Google Gemini (ambos instalados)
-- **WhatsApp**: Evolution API ou Meta Cloud API (a ser integrado)
-- **Storage de Arquivos**: Local (via multer)
+- **WhatsApp**: Evolution API ou Meta Cloud API (webhook implementado)
+- **Storage de Arquivos**: Local (via multer, preparado para S3/R2)
 - **Indexação/Vetorização**: Ollama local com nomic-embed-text e LanceDB (conforme configuração global do Kilo)
 
 ## Estado da Implementação
@@ -80,17 +92,25 @@ frontend/
 - UI do Assistente conectada (chat, upload de imagem, configuração de API)
 - Extração de comprovante básica (rotas `/ocr/*` e widget de foto)
 - Fluxo de sugestão e confirmação de pagamento (em `lancamentoFoto.js` e `MensagemAssistente.js`)
-- Integração WhatsApp mínima (rotas `/assistente/whatsapp/*` e página `UsuarioWhatsApp.jsx`)
+- Integração WhatsApp mínima (rotas `/assistente/whatsapp/*` e pagina `UsuarioWhatsApp.jsx`)
+- **Novas implementações para atender aos requisitos de auditoria:**
+  - Modelo `ArquivoDocumento` com hash para deteccao de duplicidade
+  - Modelo `ArquivoDocumento` com versionamento append-only e campo vigente identificavel
+  - Modelo `ArquivoDocumento` com tokens de acesso temporario para URLs seguras
+  - Webhook do WhatsApp com validacao de assinatura
+  - Endpoints para acesso temporario seguro a arquivos
+  - Servico de contexto operacional pronto para integracao com LLM
+  - Servico de briefing diario pronto para integracao com LLM
 
 ### 🚧 Em Progresso / Próximos Passos
-1. **Serviço de Contexto Operacional** (`ContextService.js`) - Implementado como scaffolding
-2. **Serviço de Briefing Diário** (`BriefingService.js`) - Implementado como scaffolding  
-3. **Widget Genérico de Documentos** (`DocumentoWidget.jsx`) - Implementado
-4. **Integração do contexto nos rotas do assistente** - Preparado (helper functions adicionadas)
-5. **Testes de fluxo crítico** - Pendente
-6. **Integração final com LLM** - Deixada para etapa de testes finais conforme solicitado
+1. **Implementar testes de fluxo crítico** - Validar fluxos completos de operacao
+2. **Aprimorar a UI** para usar o DocumentoWidget generico em vez do FotoWidget especifico
+3. **Integrar finalmente com LLM** na etapa de testes finais (ja preparado nos rotas)
+4. **Verificar acesso real aos dados** dos 5 módulos especifico nos PDFs (Financeiro, Engenharia, Jurídico, RH, Licitações)
+5. **Implementar armazenamento de arquivos** em S3/R2 para producao
+6. **Configurar webhook do WhatsApp** em producao com numeros oficiais
 
-## Variáveis de Environment Necessárias
+## Variáveis de Environment Necessarias
 
 Configure estas variáveis no arquivo `.env` do backend:
 
@@ -102,12 +122,14 @@ LLM_API_KEY=sua_chave_api_openai_ou_gemini
 WHATSAPP_PROVIDER=evolution  # ou meta
 WHATSAPP_TOKEN=seu_token_whatsapp
 WHATSAPP_VERIFY_TOKEN=seu_token_de_verificacao_se_aplicavel
-OLLAMA_URL=http://127.0.0.1:11434  # padrão, conforme configurado globalmente
+WHATSAPP_WEBHOOK_URL=sua_url_do_webhook
+DEFAULT_WHATSAPP_EMPRESA_ID=id_da_empresa_padrao_para_whatsapp
+OLLAMA_URL=http://127.0.0.1:11434  # padrao, conforme configurado globalmente
 ```
 
 ## Como Executar
 
-1. Instale dependências:
+1. Instale dependencias:
    ```bash
    npm run install:all
    ```
@@ -124,22 +146,44 @@ OLLAMA_URL=http://127.0.0.1:11434  # padrão, conforme configurado globalmente
 
 4. Acesse em http://localhost:5173 (ou outra porta indicada pelo Vite)
 
-## Princípios de Design
+## Principios de Design
 
-- **TypeScript preferencial** (manter consistência com código existente JS)
-- **Nomes em inglês no código**; português apenas em UI e mensagens
-- **Validação de entrada obrigatória**
-- **Não usar `any` sem justificativa**
+- **TypeScript preferencial** (manter consistencia com codigo existente JS)
+- **Nomes em ingles no codigo**; portugues apenas em UI e mensagens
+- **Validacao de entrada obrigatoria**
+- **Nao usar `any` sem justificativa**
 - **Erros tratados de forma centralizada**
-- **Logs estruturados em ações importantes**
-- **Preservar o design system e padrões visuais já existentes**
+- **Logs estruturados em acoes importantes**
+- **Preservar o design system e pads visuais ja existentes**
+
+## Consideracoes de Seguranca e Protecao de Dados (LGPD)
+
+1. **Arquivos**: 
+   - Todos os arquivos recebem hash SHA-256 para deteccao de duplicidade
+   - URLs de acesso sao temporarios e exigem token de autorizacao
+   - Nenhum link publico permanente eh gerado para arquivos sensibles
+
+2. **WhatsApp**:
+   - Webhook valida assinatura para garantir autenticidade
+   - Numeros de telefone sao tratados como dados pessoais sensiveis
+   - Mensagens sao armazenadas com associacao ao usuario, mas dados do contatos sao minimizados
+
+3. **Dados Sensiveis**:
+   - Informacoes medicas, financeiras e societarias recebem tratamento especial
+   - Acesso restrito com base em perfis de usuario
+   - Auditorias completas de todas as acoes criticas
+
+4. **Retencao e Exclusao**:
+   - Nenhuma exclusao fisica de registros oficiais - apenas inativacao
+   - Historico completo eh preservado para auditoria
+   - Versionamento de documentos permite rastreamento de alteracoes
 
 ## Regras para Desenvolvimento
 
-- Sempre ler este arquivo e a Spec da feature antes de começar
+- Sempre ler este arquivo e a Spec da feature antes de comecar
 - Trabalhar em fatias pequenas (1 tarefa por vez)
 - Explicar o que vai fazer antes de editar arquivos
-- Não fazer commit nem push sozinha
-- Não quebrar telas ou fluxos que já funcionam
-- Ao final da sessão: atualizar a Spec com o que realmente foi implementado
+- Nao fazer commit nem push sozinha
+- Nao quebrar telas ou fluxos que ja funcionam
+- Ao final da sessao: atualizar a Spec com o que realmente foi implementado
 - Prefere estender o que existe a reescrever do zero

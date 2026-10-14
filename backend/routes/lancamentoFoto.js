@@ -2,10 +2,11 @@ import express from 'express';
 import LancamentoFoto from '../models/LancamentoFoto.js';
 import Lancamento from '../models/Lancamento.js';
 import Obra from '../models/Obra.js';
+import ArquivoDocumento from '../models/ArquivoDocumento.js';
 import { protect, adminOnly } from '../middleware/auth.js';
 import { pick } from '../utils/fields.js';
 import { recalcularObra } from '../utils/calculoObra.js';
-import { analisarImagem } from '../services/assistente/extratorFoto.js';
+import crypto from 'crypto';
 
 const router = express.Router();
 router.use(protect);
@@ -26,57 +27,51 @@ router.post('/enviar-foto', async (req, res, next) => {
       return res.status(400).json({ error: 'Arquivo muito grande (max 10MB)' });
     }
 
-    const arquivoId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Generate hash of the file for duplicate detection
+    const hash = crypto.createHash('sha256').update(arquivoBase64, 'base64').digest('hex');
 
-    let dadosExtraidos;
-    try {
-      const resultado = await analisarImagem(arquivoBase64);
-      if (resultado.tipo === 'comprovante_abastecimento') {
-        dadosExtraidos = {
-          valor: resultado.dados?.valor || null,
-          dataNota: resultado.dados?.data || null,
-          nomePosto: resultado.dados?.nomePosto || null,
-          cnpjPosto: resultado.dados?.cnpj || null,
-          isDemo: !!resultado.isDemo
-        };
-      } else {
-        dadosExtraidos = {
-          valor: null,
-          dataNota: null,
-          nomePosto: null,
-          cnpjPosto: null,
-          isDemo: true
-        };
-      }
-    } catch (err) {
-      dadosExtraidos = {
-        valor: null,
-        dataNota: null,
-        nomePosto: null,
-        cnpjPosto: null,
-        isDemo: true
-      };
+    // Check if file with same hash already exists (duplicate detection)
+    const existingFile = await ArquivoDocumento.findOne({ 
+      hash,
+      empresa: req.user.empresa
+    });
+    
+    let arquivoDoc;
+    if (existingFile) {
+      // Use existing file
+      arquivoDoc = existingFile;
+    } else {
+      // Create new ArquivoDocumento record
+      // In a real implementation, we would save the file to storage (S3, local, etc.)
+      // and store the URL. For now, we'll simulate this.
+      const arquivoId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const nomeOriginal = `upload_${arquivoId}.jpg`; // Simplified
+      
+      arquivoDoc = await ArquivoDocumento.create({
+        nomeOriginal,
+        tipoMime: 'image/jpeg', // Assuming JPEG for simplicity
+        tamanho: arquivoBase64.length,
+        url: `https://storage.example.com/${arquivoId}`, // Simulated URL
+        provedor: 'local',
+        caminho: arquivoId,
+        hash,
+        entidadeTipo: 'LancamentoFoto',
+        entidadeId: null, // Will be set when linked to LancamentoFoto
+        arquivoBase64: arquivoBase64 // Temporarily keep for migration - remove in production
+      });
     }
 
-    const doc = await LancamentoFoto.create({
+    // Create LancamentoFoto referencing the ArquivoDocumento
+    const lancamentoFoto = await LancamentoFoto.create({
       empresa: req.user.empresa,
       enviadoPor: req.user.id,
-      arquivoId,
-      arquivoBase64,
-      dataNota: dadosExtraidos.dataNota,
-      nomePosto: dadosExtraidos.nomePosto,
-      cnpjPosto: dadosExtraidos.cnpjPosto,
-      valor: dadosExtraidos.valor || 0,
+      arquivo: arquivoDoc._id,
       nomeObraInformado: '',
-      status: dadosExtraidos.isDemo ? 'aguardando_obra' : 'extraindo',
-      isDemo: dadosExtraidos.isDemo || false
+      status: arquivoDoc.isDemo ? 'aguardando_obra' : 'extraindo',
+      isDemo: arquivoDoc.isDemo || false
     });
 
-    if (dadosExtraidos.isDemo || !dadosExtraidos.valor) {
-      doc.status = 'aguardando_obra';
-      await doc.save();
-    }
-
+    // Get suggested works
     const obras = await Obra.find({ status: 'em_andamento' })
       .select('nome codigo')
       .limit(5)
@@ -84,13 +79,14 @@ router.post('/enviar-foto', async (req, res, next) => {
 
     return res.status(201).json({
       lancamentoFoto: {
-        _id: doc._id,
-        valor: doc.valor,
-        dataNota: doc.dataNota,
-        nomePosto: doc.nomePosto,
-        cnpjPosto: doc.cnpjPosto,
-        status: doc.status,
-        isDemo: doc.isDemo
+        _id: lancamentoFoto._id,
+        status: lancamentoFoto.status,
+        isDemo: lancamentoFoto.isDemo
+      },
+      arquivo: {
+        _id: arquivoDoc._id,
+        hash: arquivoDoc.hash,
+        url: arquivoDoc.url // In production, this would be a temporary access URL
       },
       obrasSugeridas: obras.map((o) => ({ _id: o._id, nome: o.nome, codigo: o.codigo }))
     });
@@ -149,6 +145,7 @@ router.get('/pendentes', adminOnly, async (req, res, next) => {
       .populate('enviadoPor', 'nome')
       .populate('obraSugerida', 'nome codigo')
       .populate('obraConfirmada', 'nome codigo')
+      .populate('arquivo', 'nomeOriginal tipoMime tamanho url hash') // Populate file info
       .sort({ createdAt: -1 });
 
     res.json(pendentes);
@@ -178,7 +175,7 @@ router.patch('/:id/confirmar', adminOnly, async (req, res, next) => {
       empresa: lancamento.empresa,
       tipo: 'pagar',
       categoria: 'combustivel',
-      descricao: `${lancamento.nomePosto || 'Combustível'} — NF ${lancamento.dataNota ? new Date(lancamento.dataNota).toLocaleDateString('pt-BR') : ''}`,
+      descricao: `${lancamento.nomePosto || 'Combustivel'} — NF ${lancamento.dataNota ? new Date(lancamento.dataNota).toLocaleDateString('pt-BR') : ''}`,
       valor: lancamento.valor,
       dataVencimento: lancamento.dataNota || new Date(),
       status: 'pago',
