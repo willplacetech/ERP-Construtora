@@ -41,17 +41,19 @@ export async function bootstrapAdmin(env = process.env, logger = console) {
 
   let admin;
   try {
-    // User.create aplica validacao e o hook bcrypt de save do modelo.
-    admin = await User.create({
-      nome: 'Super Administrador',
-      email,
-      senha,
-      role: 'admin',
-      ativo: true,
-      superAdmin: true,
-      trocarSenha: true,
-      empresa: empresa._id
-    });
+   // User.create aplica validacao e o hook bcrypt de save do modelo.
+   admin = await User.create({
+     nome: 'Super Administrador',
+     email,
+     senha,
+     role: 'admin',
+     ativo: true,
+     superAdmin: true,
+     trocarSenha: true,
+     empresa: empresa._id,
+     permissoesJuridico: [],
+     obras: []
+   });
   } catch (err) {
     if (err.code !== 11000 || !await User.exists({ email })) throw err;
     logger.info('Administrador inicial: conta criada por outra instancia; senha preservada.');

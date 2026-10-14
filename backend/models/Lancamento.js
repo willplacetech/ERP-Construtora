@@ -19,7 +19,8 @@ const lancamentoSchema = new mongoose.Schema({
   movimentoBancario: { type: mongoose.Schema.Types.ObjectId, ref: 'MovimentoBancario' },
   numeroParcela: { type: Number, min: 1 },
   formaPagamento: String,
-  observacoes: String
+  observacoes: String,
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 lancamentoSchema.index(
@@ -30,6 +31,8 @@ lancamentoSchema.index(
   { empresa: 1, contrato: 1, numeroParcela: 1 },
   { unique: true, partialFilterExpression: { contrato: { $type: 'objectId' }, numeroParcela: { $type: 'number' } } }
 );
+lancamentoSchema.index({ deletedAt: 1 });
+
 lancamentoSchema.plugin(tenantPlugin);
 
 export default mongoose.model('Lancamento', lancamentoSchema);

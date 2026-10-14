@@ -29,7 +29,7 @@ const userSchema = new mongoose.Schema({
     type: [{ type: String, enum: JURIDICO_PERMISSIONS }],
     default: []
   },
-  obras: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Obra' }]
+  obras: { type: [mongoose.Schema.Types.ObjectId], ref: 'Obra', default: [] }
 }, { timestamps: true });
 
 userSchema.plugin(tenantPlugin);

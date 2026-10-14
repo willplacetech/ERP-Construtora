@@ -24,53 +24,57 @@ function dispararCalculoObra(lancamento) {
 
 // GET /api/financeiro?tipo=pagar&status=pago
 router.get('/', async (req, res, next) => {
-  try {
-    const filtro = {};
-    if (req.query.tipo) filtro.tipo = req.query.tipo;
-    if (req.query.status) filtro.status = req.query.status;
-    if (req.query.obra) filtro.obra = req.query.obra;
-    if (req.query.inicio || req.query.fim) {
-      const inicio = req.query.inicio ? new Date(req.query.inicio) : null;
-      const fim = req.query.fim ? new Date(req.query.fim) : null;
-      if ((inicio && Number.isNaN(inicio.getTime())) || (fim && Number.isNaN(fim.getTime()))) {
-        return res.status(400).json({ error: 'Periodo financeiro invalido' });
-      }
-      if (inicio) inicio.setUTCHours(0, 0, 0, 0);
-      if (fim) fim.setUTCHours(23, 59, 59, 999);
-      filtro.dataVencimento = {
-        ...(inicio ? { $gte: inicio } : {}),
-        ...(fim ? { $lte: fim } : {})
-      };
-    }
-    const docs = await Lancamento.find(filtro)
-      .populate('obra', 'nome')
-      .populate('cliente', 'nome')
-      .populate('fornecedorVinculado', 'nome')
-      .populate('contaBancaria', 'nome banco numeroConta')
-      .populate('movimentoBancario', '_id')
-      .sort({ dataVencimento: 1 });
-    res.json(docs);
-  } catch (err) { next(err); }
-});
+   try {
+     const filtro = { deletedAt: null };
+     if (req.query.tipo) filtro.tipo = req.query.tipo;
+     if (req.query.status) filtro.status = req.query.status;
+     if (req.query.obra) filtro.obra = req.query.obra;
+     if (req.query.inicio || req.query.fim) {
+       const inicio = req.query.inicio ? new Date(req.query.inicio) : null;
+       const fim = req.query.fim ? new Date(req.query.fim) : null;
+       if ((inicio && Number.isNaN(inicio.getTime())) || (fim && Number.isNaN(fim.getTime()))) {
+         return res.status(400).json({ error: 'Periodo financeiro invalido' });
+       }
+       if (inicio) inicio.setUTCHours(0, 0, 0, 0);
+       if (fim) fim.setUTCHours(23, 59, 59, 999);
+       filtro.dataVencimento = {
+         ...(inicio ? { $gte: inicio } : {}),
+         ...(fim ? { $lte: fim } : {})
+       };
+     }
+     const docs = await Lancamento.find(filtro)
+       .populate('obra', 'nome')
+       .populate('cliente', 'nome')
+       .populate('fornecedorVinculado', 'nome')
+       .populate('contaBancaria', 'nome banco numeroConta')
+       .populate('movimentoBancario', '_id')
+       .sort({ dataVencimento: 1 });
+     res.json(docs);
+   } catch (err) { next(err); }
+ });
 
 router.get('/:id', async (req, res, next) => {
-  try {
-    const doc = await Lancamento.findById(req.params.id).populate('obra cliente');
-    if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
-    res.json(doc);
-  } catch (err) { next(err); }
-});
+   try {
+     const doc = await Lancamento.findOne({ _id: req.params.id, deletedAt: null }).populate('obra cliente');
+     if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
+     res.json(doc);
+   } catch (err) { next(err); }
+ });
 
 router.post('/', adminOnly, async (req, res, next) => {
-  try {
-    const payload = pick(req.body, ['tipo', 'descricao', 'categoria', 'valor', 'dataVencimento', 'obra', 'cliente', 'fornecedor', 'formaPagamento', 'observacoes']);
-    if (req.body.status === 'pago' || req.body.dataPagamento || req.body.contaBancaria) {
-      return res.status(400).json({ error: 'Lançamentos pagos devem ser baixados com conciliação bancária' });
-    }
-    const doc = await Lancamento.create(payload);
-    res.status(201).json(doc);
-  } catch (err) { next(err); }
-});
+   try {
+     // Check for confirmation
+     if (!req.body.confirmacao || req.body.confirmacao !== true) {
+       return res.status(400).json({ error: 'Confirmação necessária para realizar esta ação' });
+     }
+     const payload = pick(req.body, ['tipo', 'descricao', 'categoria', 'valor', 'dataVencimento', 'obra', 'cliente', 'fornecedor', 'formaPagamento', 'observacoes']);
+     if (req.body.status === 'pago' || req.body.dataPagamento || req.body.contaBancaria) {
+       return res.status(400).json({ error: 'Lançamentos pagos devem ser baixados com conciliação bancária' });
+     }
+     const doc = await Lancamento.create(payload);
+     res.status(201).json(doc);
+   } catch (err) { next(err); }
+ });
 
 // Marcar como pago / baixar titulo
 router.post('/:id/baixar', adminOnly, async (req, res, next) => {
@@ -142,32 +146,36 @@ router.post('/:id/baixar', adminOnly, async (req, res, next) => {
 });
 
 router.put('/:id', adminOnly, async (req, res, next) => {
-  try {
-    const atual = await Lancamento.findById(req.params.id);
-    if (!atual) return res.status(404).json({ error: 'Nao encontrado' });
-    const payload = pick(req.body, ['tipo', 'descricao', 'categoria', 'valor', 'dataVencimento', 'obra', 'cliente', 'fornecedor', 'formaPagamento', 'observacoes']);
-    if (req.body.status === 'pago' || req.body.dataPagamento || req.body.contaBancaria) {
-      return res.status(400).json({ error: 'Lançamentos pagos devem ser baixados com conciliação bancária' });
-    }
-    if (atual.movimentoBancario && ['tipo', 'valor', 'obra', 'cliente'].some((campo) => Object.hasOwn(payload, campo) && String(payload[campo]) !== String(atual[campo]))) {
-      return res.status(409).json({ error: 'Lançamento conciliado nao pode alterar tipo, valor, obra ou cliente' });
-    }
-    if (atual.movimentoBancario) return res.status(409).json({ error: 'Lançamento conciliado nao pode ser editado' });
-    const doc = await Lancamento.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true });
-    if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
-    res.json(doc);
-  } catch (err) { next(err); }
-});
+   try {
+     const atual = await Lancamento.findOne({ _id: req.params.id, deletedAt: null });
+     if (!atual) return res.status(404).json({ error: 'Nao encontrado' });
+     const payload = pick(req.body, ['tipo', 'descricao', 'categoria', 'valor', 'dataVencimento', 'obra', 'cliente', 'fornecedor', 'formaPagamento', 'observacoes']);
+     if (req.body.status === 'pago' || req.body.dataPagamento || req.body.contaBancaria) {
+       return res.status(400).json({ error: 'Lançamentos pagos devem ser baixados com conciliação bancária' });
+     }
+     if (atual.movimentoBancario && ['tipo', 'valor', 'obra', 'cliente'].some((campo) => Object.hasOwn(payload, campo) && String(payload[campo]) !== String(atual[campo]))) {
+       return res.status(409).json({ error: 'Lançamento conciliado nao pode alterar tipo, valor, obra ou cliente' });
+     }
+     if (atual.movimentoBancario) return res.status(409).json({ error: 'Lançamento conciliado nao pode ser editado' });
+     const doc = await Lancamento.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true });
+     if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
+     res.json(doc);
+   } catch (err) { next(err); }
+ });
 
 router.delete('/:id', adminOnly, async (req, res, next) => {
-  try {
-    if (await Lancamento.exists({ _id: req.params.id, movimentoBancario: { $exists: true } })) {
-      return res.status(409).json({ error: 'Lançamento conciliado nao pode ser excluido' });
-    }
-    const doc = await Lancamento.findByIdAndDelete(req.params.id);
-    if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
-    res.json({ ok: true });
-  } catch (err) { next(err); }
-});
+   try {
+     if (await Lancamento.exists({ _id: req.params.id, movimentoBancario: { $exists: true } })) {
+       return res.status(409).json({ error: 'Lançamento conciliado nao pode ser excluido' });
+     }
+     const doc = await Lancamento.findByIdAndUpdate(
+       req.params.id,
+       { deletedAt: new Date() },
+       { new: true }
+     );
+     if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
+     res.json({ ok: true, message: 'Lançamento excluído (soft delete)' });
+   } catch (err) { next(err); }
+ });
 
 export default router;
