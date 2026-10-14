@@ -35,35 +35,38 @@ const __dirname = dirname(__filename);
 const routesDir = join(__dirname, 'routes');
 
 import { readdirSync } from 'fs';
-readdirSync(routesDir)
+const routeModules = await Promise.all(readdirSync(routesDir)
   .filter(file => file.endsWith('.js') && !file.endsWith('.test.js'))
-  .forEach(file => {
-    const route = import(`./routes/${file}`);
-    route.then(routeModule => {
-      // Assuming each route exports a router as default
-      const router = routeModule.default || routeModule;
-      const routeName = file.replace('.js', '');
-      app.use(`/api/${routeName}`, router);
-      console.log(`Route loaded: /api/${routeName}`);
-    }).catch(err => {
+  .map(async (file) => {
+    try {
+      return { file, routeModule: await import(`./routes/${file}`) };
+    } catch (err) {
       console.error(`Failed to load route ${file}:`, err);
-    });
-  });
+      return null;
+    }
+  }));
+
+routeModules.filter(Boolean).forEach(({ file, routeModule }) => {
+  const router = routeModule.default || routeModule;
+  const routeName = file.replace('.js', '');
+  app.use(`/api/${routeName}`, router);
+  console.log(`Route loaded: /api/${routeName}`);
+});
 
 // Health check
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ message: 'Route not found' });
-});
-
 // Error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ message: 'Something went wrong!' });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ message: 'Route not found' });
 });
 
 app.listen(PORT, () => {
