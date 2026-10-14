@@ -214,13 +214,13 @@ router.get('/alertas-rh', async (req, res, next) => {
         }
         filtro.data.$gte = inicio;
       }
-      if (dataFim) {
-        const fim = new Date(dataFim);
-        if (Number.isNaN(fim.getTime())) {
-          return res.status(400).json({ error: 'Data de fim invalida' );
-        }
-        filtro.data.$lte = fim;
-      }
+       if (dataFim) {
+         const fim = new Date(dataFim);
+         if (Number.isNaN(fim.getTime())) {
+           return res.status(400).json({ error: 'Data de fim invalida' });
+         }
+         filtro.data.$lte = fim;
+       }
     }
     alertas = await AlertaRH.find(filtro).populate('colaborador', 'nome').sort({ data: -1 });
     res.json({ alertas });
@@ -230,7 +230,7 @@ router.get('/alertas-rh', async (req, res, next) => {
 router.get('/alertas-rh/:id', async (req, res, next) => {
   try {
     if (!validId(req.params.id)) {
-      return res.status(400).json({ error: 'Identificador invalido' );
+      return res.status(400).json({ error: 'Identificador invalido' });
     }
     const alerta = await AlertaRH.findById(req.params.id).populate('colaborador', 'nome');
     if (!alerta) return res.status(404).json({ error: 'Alerta RH não encontrado' });
@@ -256,7 +256,7 @@ router.post('/alertas-rh', async (req, res, next) => {
 router.put('/alertas-rh/:id', async (req, res, next) => {
   try {
     if (!validId(req.params.id)) {
-      return res.status(400).json({ error: 'Identificador invalido' );
+      return res.status(400).json({ error: 'Identificador invalido' });
     }
     const payload = requestPayload(req.body, ['tipo', 'mensagem', 'status', 'dataVencimento']);
     const dataVencimento = payload.dataVencimento ? new Date(payload.dataVencimento) : undefined;
@@ -272,7 +272,7 @@ router.put('/alertas-rh/:id', async (req, res, next) => {
 router.delete('/alertas-rh/:id', async (req, res, next) => {
   try {
     if (!validId(req.params.id)) {
-      return res.status(400).json({ error: 'Identificador invalido' );
+      return res.status(400).json({ error: 'Identificador invalido' });
     }
     const alerta = await AlertaRH.findByIdAndDelete(req.params.id);
     if (!alerta) return res.status(404).json({ error: 'Alerta RH não encontrado' });
@@ -291,16 +291,16 @@ router.get('/colaboradores', async (req, res, next) => {
       filtro.dataAdmissao = {};
       if (dataAdmissaoInicio) {
         const inicio = new Date(dataAdmissaoInicio);
-        if (Number.isNaN(inicio.getTime())) {
-          return res.status(400).json({ error: 'Data de admissao inicio invalida' );
-        }
+       if (Number.isNaN(inicio.getTime())) {
+         return res.status(400).json({ error: 'Data de admissao inicio invalida' });
+       }
         filtro.dataAdmissao.$gte = inicio;
       }
       if (dataAdmissaoFim) {
         const fim = new Date(dataAdmissaoFim);
-        if (Number.isNaN(fim.getTime())) {
-          return res.status(400).json({ error: 'Data de admissao fim invalida' );
-        }
+       if (Number.isNaN(fim.getTime())) {
+         return res.status(400).json({ error: 'Data de admissao fim invalida' });
+       }
         filtro.dataAdmissao.$lte = fim;
       }
     }
@@ -312,10 +312,10 @@ router.get('/colaboradores', async (req, res, next) => {
 router.get('/colaboradores/:id', async (req, res, next) => {
   try {
     if (!validId(req.params.id)) {
-      return res.status(400).json({ error: 'Identificador invalido' );
+      return res.status(400).json({ error: 'Identificador invalido' });
     }
     const colaborador = await Colaborador.findById(req.params.id);
-    if (!colaborador) return res.status(404).json({ error: 'Colaborador não encontrado' );
+    if (!colaborador) return res.status(404).json({ error: 'Colaborador não encontrado' });
     res.json({ colaborador });
   } catch (err) { next(err); }
 });
@@ -326,10 +326,10 @@ router.post('/colaboradores', async (req, res, next) => {
     if (!payload.nome || !payload.cargo || !payload.dataAdmissao) {
       return res.status(400).json({ error: 'Campos obrigatórios: nome, cargo, dataAdmissao' });
     }
-    const dataAdmissao = new Date(payload.dataAdmissao);
-    if (Number.isNaN(dataAdmissao.getTime())) {
-      return res.status(400).json({ error: 'Data de admissao invalida' );
-    }
+     const dataAdmissao = new Date(payload.dataAdmissao);
+     if (Number.isNaN(dataAdmissao.getTime())) {
+       return res.status(400).json({ error: 'Data de admissao invalida' });
+     }
     const colaborador = await Colaborador.create({ ...payload, dataAdmissao });
     res.status(201).json({ colaborador });
   } catch (err) { next(err); }
@@ -338,15 +338,15 @@ router.post('/colaboradores', async (req, res, next) => {
 router.put('/colaboradores/:id', async (req, res, next) => {
   try {
     if (!validId(req.params.id)) {
-      return res.status(400).json({ error: 'Identificador invalido' );
+      return res.status(400).json({ error: 'Identificador invalido' });
     }
     const payload = requestPayload(req.body, ['nome', 'cargo', 'salario', 'dataAdmissao', 'status', 'cpf', 'rg', 'endereco', 'telefone', 'email', 'observacao']);
     const dataAdmissao = payload.dataAdmissao ? new Date(payload.dataAdmissao) : undefined;
     if (dataAdmissao && Number.isNaN(dataAdmissao.getTime())) {
-      return res.status(400).json({ error: 'Data de admissao invalida' );
+      return res.status(400).json({ error: 'Data de admissao invalida' });
     }
     const colaborador = await Colaborador.findByIdAndUpdate(req.params.id, payload, { new: true, runValidators: true });
-    if (!colaborador) return res.status(404).json({ error: 'Colaborador não encontrado' );
+    if (!colaborador) return res.status(404).json({ error: 'Colaborador não encontrado' });
     res.json({ colaborador });
   } catch (err) { next(err); }
 });
@@ -354,10 +354,10 @@ router.put('/colaboradores/:id', async (req, res, next) => {
 router.delete('/colaboradores/:id', async (req, res, next) => {
   try {
     if (!validId(req.params.id)) {
-      return res.status(400).json({ error: 'Identificador invalido' );
+      return res.status(400).json({ error: 'Identificador invalido' });
     }
     const colaborador = await Colaborador.findByIdAndDelete(req.params.id);
-    if (!colaborador) return res.status(404).json({ error: 'Colaborador não encontrado' );
+    if (!colaborador) return res.status(404).json({ error: 'Colaborador não encontrado' });
     res.json({ message: 'Colaborador removido' });
   } catch (err) { next(err); }
 });
