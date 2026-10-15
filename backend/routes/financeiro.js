@@ -171,10 +171,14 @@ router.post('/:id/baixar', adminOnly, async (req, res, next) => {
 });
 
 router.put('/:id', adminOnly, async (req, res, next) => {
-   try {
-     const atual = await Lancamento.findOne({ _id: req.params.id, deletedAt: null });
-     if (!atual) return res.status(404).json({ error: 'Nao encontrado' });
-     const payload = pick(req.body, ['tipo', 'descricao', 'categoria', 'valor', 'dataVencimento', 'obra', 'cliente', 'fornecedor', 'formaPagamento', 'observacoes']);
+    try {
+      // Check for confirmation
+      if (!req.body.confirmacao || req.body.confirmacao !== true) {
+        return res.status(400).json({ error: 'Confirmação necessária para realizar esta ação' });
+      }
+      const atual = await Lancamento.findOne({ _id: req.params.id, deletedAt: null });
+      if (!atual) return res.status(404).json({ error: 'Nao encontrado' });
+      const payload = pick(req.body, ['tipo', 'descricao', 'categoria', 'valor', 'dataVencimento', 'obra', 'cliente', 'fornecedor', 'formaPagamento', 'observacoes']);
      if (req.body.status === 'pago' || req.body.dataPagamento || req.body.contaBancaria) {
        return res.status(400).json({ error: 'Lançamentos pagos devem ser baixados com conciliação bancária' });
      }
@@ -189,18 +193,22 @@ router.put('/:id', adminOnly, async (req, res, next) => {
  });
 
 router.delete('/:id', adminOnly, async (req, res, next) => {
-   try {
-     if (await Lancamento.exists({ _id: req.params.id, movimentoBancario: { $exists: true } })) {
-       return res.status(409).json({ error: 'Lançamento conciliado nao pode ser excluido' });
-     }
-     const doc = await Lancamento.findByIdAndUpdate(
-       req.params.id,
-       { deletedAt: new Date() },
-       { new: true }
-     );
-     if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
-     res.json({ ok: true, message: 'Lançamento excluído (soft delete)' });
-   } catch (err) { next(err); }
- });
+    try {
+      // Check for confirmation
+      if (!req.body.confirmacao || req.body.confirmacao !== true) {
+        return res.status(400).json({ error: 'Confirmação necessária para realizar esta ação' });
+      }
+      if (await Lancamento.exists({ _id: req.params.id, movimentoBancario: { $exists: true } })) {
+        return res.status(409).json({ error: 'Lançamento conciliado nao pode ser excluido' });
+      }
+      const doc = await Lancamento.findByIdAndUpdate(
+        req.params.id,
+        { deletedAt: new Date() },
+        { new: true }
+      );
+      if (!doc) return res.status(404).json({ error: 'Nao encontrado' });
+      res.json({ ok: true, message: 'Lançamento excluído (soft delete)' });
+    } catch (err) { next(err); }
+  });
 
 export default router;
