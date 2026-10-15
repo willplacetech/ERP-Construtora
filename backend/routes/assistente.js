@@ -209,47 +209,50 @@ router.post('/webhook', async (req, res, next) => {
       ...(resultado.requerConfirmacao && resultado.previas?.length
         ? { confirmacao: { previas: resultado.previas } } : {})
     });
-
-      // Send WhatsApp message via provider with retry
-      let providerMessageId = null;
-      try {
-        // Assume contatoId is the WhatsApp number in E.164 format; adjust if needed
-        const toNumber = String(contatoId).replace(/\D/g, '');
-        providerMessageId = await sendWhatsAppMessageWithRetry(toNumber, respostaTexto);
-        // Log successful outbound message
-        await WhatsAppLog.create({
-          empresa: finalEmpresaId,
-          messageId: mensagemId, // our internal id
-          status: 'sent',
-          tentativas: 1,
-          erro: null
-        });
-        // Optionally store providerMessageId in WhatsAppLog if we add a column; for now we ignore
-      } catch (sendErr) {
-        // Log failed outbound message
-        await WhatsAppLog.create({
-          empresa: finalEmpresaId,
-          messageId: mensagemId,
-          status: 'failed',
-          tentativas: 1,
-          erro: sendErr.message || 'Erro desconhecido'
-        });
-        // Still return 200 to prevent WhatsApp from retrying indefinitely
-        // In production, you might want to implement retry logic with exponential backoff
-        return res.status(200).json({ 
-          status: 'error', 
-          error: sendErr.message || 'Erro desconhecido',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      // Return success to WhatsApp provider
-      res.status(200).json({
-        status: 'success',
-        messageId: mensagemId,
-        timestamp: new Date().toISOString()
-      });
-});
+ 
+       // Send WhatsApp message via provider with retry
+       let providerMessageId = null;
+       try {
+         // Assume contatoId is the WhatsApp number in E.164 format; adjust if needed
+         const toNumber = String(contatoId).replace(/\D/g, '');
+         providerMessageId = await sendWhatsAppMessageWithRetry(toNumber, respostaTexto);
+         // Log successful outbound message
+         await WhatsAppLog.create({
+           empresa: finalEmpresaId,
+           messageId: mensagemId, // our internal id
+           status: 'sent',
+           tentativas: 1,
+           erro: null
+         });
+         // Optionally store providerMessageId in WhatsAppLog if we add a column; for now we ignore
+         
+         // Return success to WhatsApp provider
+         return res.status(200).json({
+           status: 'success',
+           messageId: mensagemId,
+           timestamp: new Date().toISOString()
+         });
+       } catch (sendErr) {
+         // Log failed outbound message
+         await WhatsAppLog.create({
+           empresa: finalEmpresaId,
+           messageId: mensagemId,
+           status: 'failed',
+           tentativas: 1,
+           erro: sendErr.message || 'Erro desconhecido'
+         });
+         // Still return 200 to prevent WhatsApp from retrying indefinitely
+         // In production, you might want to implement retry logic with exponential backoff
+         return res.status(200).json({ 
+           status: 'error', 
+           error: sendErr.message || 'Erro desconhecido',
+           timestamp: new Date().toISOString()
+          });
+        }
+    } catch (err) {
+      return next(err);
+    }
+ });
 
 // WhatsApp status endpoint (already existed, kept for compatibility)
 router.get('/status', (req, res) => {
@@ -425,7 +428,7 @@ router.post('/chat', async (req, res, next) => {
       return res.status(400).json({ error: 'Mensagem e obrigatoria' });
     }
     if (mensagem.trim().length > 2000) {
-      return res.status(400).json({ error: 'Mensagem muito longa (max 2000 caracteres)' );
+       return res.status(400).json({ error: 'Mensagem muito longa (max 2000 caracteres)' });
     }
 
     // Prepare operational context for LLM (to be integrated in final testing phase)
