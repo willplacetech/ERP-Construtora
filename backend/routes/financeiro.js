@@ -6,6 +6,7 @@ import MovimentoBancario from '../models/MovimentoBancario.js';
 import { protect, adminOnly } from '../middleware/auth.js';
 import { pick } from '../utils/fields.js';
 import { recalcularObra } from '../utils/calculoObra.js';
+import { auditAction } from '../services/auditService.js';
 
 const router = express.Router();
 router.use(protect);
@@ -62,19 +63,28 @@ router.get('/:id', async (req, res, next) => {
  });
 
 router.post('/', adminOnly, async (req, res, next) => {
-   try {
-     // Check for confirmation
-     if (!req.body.confirmacao || req.body.confirmacao !== true) {
-       return res.status(400).json({ error: 'Confirmação necessária para realizar esta ação' });
-     }
-     const payload = pick(req.body, ['tipo', 'descricao', 'categoria', 'valor', 'dataVencimento', 'obra', 'cliente', 'fornecedor', 'formaPagamento', 'observacoes']);
-     if (req.body.status === 'pago' || req.body.dataPagamento || req.body.contaBancaria) {
-       return res.status(400).json({ error: 'Lançamentos pagos devem ser baixados com conciliação bancária' });
-     }
-     const doc = await Lancamento.create(payload);
-     res.status(201).json(doc);
-   } catch (err) { next(err); }
- });
+    try {
+      // Check for confirmation
+      if (!req.body.confirmacao || req.body.confirmacao !== true) {
+        return res.status(400).json({ error: 'Confirmação necessária para realizar esta ação' });
+      }
+      const payload = pick(req.body, ['tipo', 'descricao', 'categoria', 'valor', 'dataVencimento', 'obra', 'cliente', 'fornecedor', 'formaPagamento', 'observacoes']);
+      if (req.body.status === 'pago' || req.body.dataPagamento || req.body.contaBancaria) {
+        return res.status(400).json({ error: 'Lançamentos pagos devem ser baixados com conciliação bancária' });
+      }
+      const doc = await Lancamento.create(payload);
+      // Audit
+      await auditAction({
+        empresaId: req.user.empresa,
+        usuarioId: req.user.id,
+        acao: 'create',
+        modelo: 'Lancamento',
+        documentoId: doc._id,
+        depois: doc.toObject ? doc.toObject() : doc
+      });
+      res.status(201).json(doc);
+    } catch (err) { next(err); }
+  });
 
 // Marcar como pago / baixar titulo
 router.post('/:id/baixar', adminOnly, async (req, res, next) => {
@@ -87,6 +97,8 @@ router.post('/:id/baixar', adminOnly, async (req, res, next) => {
     if (Number.isNaN(dataPagamento.getTime())) {
       return res.status(400).json({ error: 'Data de pagamento invalida' });
     }
+    let lancamentoAntes;
+    let lancamentoDepois;
     let doc;
     await session.withTransaction(async () => {
       const lancamento = await Lancamento.findById(req.params.id).session(session);
@@ -95,7 +107,9 @@ router.post('/:id/baixar', adminOnly, async (req, res, next) => {
         error.status = 404;
         throw error;
       }
+      lancamentoAntes = lancamento.toObject();
       if (lancamento.movimentoBancario) {
+        lancamentoDepois = lancamentoAntes;
         doc = lancamento;
         return;
       }
@@ -133,11 +147,22 @@ router.post('/:id/baixar', adminOnly, async (req, res, next) => {
       lancamento.contaBancaria = conta._id;
       lancamento.movimentoBancario = movimento._id;
       await lancamento.save({ session });
+      lancamentoDepois = lancamento.toObject();
       doc = lancamento;
     });
-    await doc.populate('contaBancaria', 'nome banco numeroConta');
-    dispararCalculoObra(doc);
-    res.json(doc);
+     await doc.populate('contaBancaria', 'nome banco numeroConta');
+     dispararCalculoObra(doc);
+     // Audit Lancamento update
+     await auditAction({
+       empresaId: req.user.empresa,
+       usuarioId: req.user.id,
+       acao: 'update',
+       modelo: 'Lancamento',
+       documentoId: doc._id,
+       antes: lancamentoAntes,
+       depois: lancamentoDepois
+     });
+     res.json(doc);
   } catch (err) {
     if ([400, 404, 409].includes(err?.status)) return res.status(err.status).json({ error: err.message });
     next(err);

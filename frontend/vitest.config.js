@@ -7,8 +7,11 @@ export default defineConfig({
     react({
       // Exclude backend files from being processed as JSX
       include: [/.*\.(jsx|tsx)$/],
-      // Alternatively, we can exclude the backend directory
-      // exclude: [/backend/],
+      exclude: [
+        '/backend/',
+        '/backend/routes/',
+        '/backend/routes/assistente.js'
+      ],
     }),
     VitePWA({
       registerType: 'autoUpdate',
@@ -53,5 +56,8 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:5000'
     }
+  },
+  optimizeDeps: {
+    exclude: ['backend']
   }
 });

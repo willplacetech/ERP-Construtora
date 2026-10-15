@@ -29,6 +29,7 @@ import {
 } from '../services/juridico/communications.js';
 import { createInternalLegalAlerts, markLegalAlert } from '../services/juridico/alerts.js';
 import { writeJuridicoAudit } from '../services/juridico/audit.js';
+import { auditAction } from '../services/auditService.js';
 
 const router = express.Router();
 router.use(protect);
@@ -902,7 +903,7 @@ router.get('/alertas', requireJuridicoPermission('visualizar'), async (req, res,
     )) {
       return res.status(400).json({ error: 'Tipo de alerta invalido' });
     }
-    const filtro = {};
+    const filtro = { deletedAt: null };
     if (req.query.status) filtro.status = req.query.status;
     if (req.query.tipo) filtro.tipo = req.query.tipo;
     const alertas = await AlertaJuridico.find(combineFilters(filtro, await alertScope(req)))
@@ -915,9 +916,11 @@ router.get('/alertas', requireJuridicoPermission('visualizar'), async (req, res,
 router.get('/alertas/:id', requireJuridicoPermission('visualizar'), async (req, res, next) => {
   try {
     if (!validId(req.params.id)) return res.status(400).json({ error: 'Identificador invalido' });
-    const alerta = await AlertaJuridico.findOne(
-      combineFilters({ _id: req.params.id }, await alertScope(req))
-    );
+    const alerta = await AlertaJuridico.findOne({
+      ...(await alertScope(req)),
+      _id: req.params.id,
+      deletedAt: null
+    });
     if (!alerta) return res.status(404).json({ error: 'Alerta nao encontrado' });
     return res.json({ alerta });
   } catch (err) { return next(err); }
@@ -1127,28 +1130,71 @@ router.post('/alertas-juridicos', async (req, res, next) => {
       return res.status(400).json({ error: 'Campos obrigatórios: documentoJuridico, tipo, titulo, mensagem' });
     }
     const alerta = await AlertaJuridico.create({ documentoJuridico, tipo, titulo, mensagem, dataVencimentoAlvo, canal, destinatarios, criadoPor: req.user.id });
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'create',
+      modelo: 'AlertaJuridico',
+      documentoId: alerta._id,
+      depois: alerta.toObject ? alerta.toObject() : alerta
+    });
     res.status(201).json({ alerta });
   } catch (err) { next(err); }
 });
 
 router.put('/alertas-juridicos/:id', async (req, res, next) => {
   try {
+    if (!validId(req.params.id)) return res.status(400).json({ error: 'Identificador invalido' });
+    const antes = await AlertaJuridico.findOne({ _id: req.params.id, deletedAt: null });
+    if (!antes) return res.status(404).json({ error: 'Alerta não encontrado' });
     const { status, resposta, canal, destinatarios } = req.body;
     const update = { status, resposta };
     if (canal) update.canal = canal;
     if (destinatarios) update.destinatarios = destinatarios;
     if (status === 'respondido') { update.respondidoPor = req.user.id; update.respondidoEm = new Date(); }
     if (status === 'enviado' && !update.dataEnvio) update.dataEnvio = new Date();
-    const alerta = await AlertaJuridico.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true });
+    const alerta = await AlertaJuridico.findOneAndUpdate(
+      { _id: req.params.id, deletedAt: null },
+      update,
+      { new: true, runValidators: true }
+    );
     if (!alerta) return res.status(404).json({ error: 'Alerta não encontrado' });
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'update',
+      modelo: 'AlertaJuridico',
+      documentoId: alerta._id,
+      antes: antes.toObject ? antes.toObject() : antes,
+      depois: alerta.toObject ? alerta.toObject() : alerta
+    });
     res.json({ alerta });
   } catch (err) { next(err); }
 });
 
 router.delete('/alertas-juridicos/:id', async (req, res, next) => {
   try {
-    const alerta = await AlertaJuridico.findByIdAndDelete(req.params.id);
+    if (!validId(req.params.id)) return res.status(400).json({ error: 'Identificador invalido' });
+    const antes = await AlertaJuridico.findOne({ _id: req.params.id, deletedAt: null });
+    if (!antes) return res.status(404).json({ error: 'Alerta não encontrado' });
+    const alerta = await AlertaJuridico.findOneAndUpdate(
+      { _id: req.params.id },
+      { deletedAt: new Date() },
+      { new: true }
+    );
     if (!alerta) return res.status(404).json({ error: 'Alerta não encontrado' });
+    // Audit
+    await auditAction({
+      empresaId: req.user.empresa,
+      usuarioId: req.user.id,
+      acao: 'delete',
+      modelo: 'AlertaJuridico',
+      documentoId: alerta._id,
+      antes: antes.toObject ? antes.toObject() : antes,
+      depois: alerta.toObject ? alerta.toObject() : alerta
+    });
     res.json({ message: 'Alerta removido' });
   } catch (err) { next(err); }
 });

@@ -38,7 +38,8 @@ const alertaJuridicoSchema = new mongoose.Schema({
   erroUltimaTentativa: String,
   respondidoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   respondidoEm: Date,
-  resposta: String
+  resposta: String,
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 alertaJuridicoSchema.index({ empresa: 1, status: 1, dataEnvio: -1 });

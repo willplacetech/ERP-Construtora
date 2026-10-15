@@ -17,7 +17,8 @@ const interacaoIASchema = new mongoose.Schema({
     enum: ['processando', 'concluido', 'erro', 'aguardando_confirmacao'],
     default: 'processando'
   },
-  erro: { type: String, trim: true }
+  erro: { type: String, trim: true },
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 interacaoIASchema.index({ empresa: 1, usuarioWhatsApp: 1, createdAt: -1 });

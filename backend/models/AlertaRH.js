@@ -15,7 +15,8 @@ const alertaRHSchema = new mongoose.Schema({
   ultimaTentativa: Date,
   erroUltimaTentativa: String,
   deduplicacaoChave: { type: String, index: true },
-  criadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  criadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 alertaRHSchema.index({ empresa: 1, status: 1, dataReferencia: 1 });

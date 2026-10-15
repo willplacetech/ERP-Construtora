@@ -130,14 +130,67 @@ const result = await runWithTenant({
       // Empresa plano
       { empresa: demo._id, tipo: 'plano_empresa', chave: 'trial', valor: 'Trial', ativo: true },
       { empresa: demo._id, tipo: 'plano_empresa', chave: 'pago', valor: 'Pago', ativo: true },
-      // Fornecedor categoria
-      { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'material', valor: 'Material', ativo: true },
-      { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'servico', valor: 'Serviço', ativo: true },
-      { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'combustivel', valor: 'Combustível', ativo: true }
-    ]).catch(err => {
-      // Ignore duplicate key errors
-      if (err.code !== 11000) throw err;
-    });
+       // Fornecedor categoria
+       { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'material', valor: 'Material', ativo: true },
+       { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'servico', valor: 'Serviço', ativo: true },
+       { empresa: demo._id, tipo: 'categoria_fornecedor', chave: 'combustivel', valor: 'Combustível', ativo: true },
+       // AlertaJuridico tipo
+       { empresa: demo._id, tipo: 'alerta_juridico_tipo', chave: 'vencimento', valor: 'Vencimento', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_juridico_tipo', chave: 'vencido', valor: 'Vencido', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_juridico_tipo', chave: 'renovacao', valor: 'Renovação', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_juridico_tipo', chave: 'pendencia', valor: 'Pendência', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_juridico_tipo', chave: 'oficio_recebido', valor: 'Ofício Recebido', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_juridico_tipo', chave: 'prazo_resposta', valor: 'Prazo Resposta', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_juridico_tipo', chave: 'fim_contrato', valor: 'Fim de Contrato', ativo: true },
+       // AlertaJuridico origemTipo
+       { empresa: demo._id, tipo: 'alerta_juridico_origem_tipo', chave: 'versao_documento', valor: 'Versão Documento', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_juridico_origem_tipo', chave: 'comunicacao', valor: 'Comunicação', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_juridico_origem_tipo', chave: 'contrato', valor: 'Contrato', ativo: true },
+       // AlertaJuridico canal
+       { empresa: demo._id, tipo: 'alerta_juridico_canal', chave: 'sistema', valor: 'Sistema', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_juridico_canal', chave: 'whatsapp', valor: 'WhatsApp', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_juridico_canal', chave: 'email', valor: 'Email', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_juridico_canal', chave: 'sistema+whatsapp', valor: 'Sistema+WhatsApp', ativo: true },
+       // AlertaLicitacao tipo
+       { empresa: demo._id, tipo: 'alerta_licitacao_tipo', chave: 'abertura_proxima', valor: 'Abertura Próxima', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_licitacao_tipo', chave: 'vencimento_garantia', valor: 'Vencimento Garantia', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_licitacao_tipo', chave: 'pendencia_documental', valor: 'Pendência Documental', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_licitacao_tipo', chave: 'retificacao_recebida', valor: 'Retificação Recebida', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_licitacao_tipo', chave: 'sessao_proxima', valor: 'Sessão Próxima', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_licitacao_tipo', chave: 'prazo_recurso', valor: 'Prazo Recurso', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_licitacao_tipo', chave: 'resultado_sessao', valor: 'Resultado Sessão', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_licitacao_tipo', chave: 'adjudicacao', valor: 'Adjudicação', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_licitacao_tipo', chave: 'vencimento_contrato', valor: 'Vencimento Contrato', ativo: true },
+       // AlertaLicitacao canal
+       { empresa: demo._id, tipo: 'alerta_licitacao_canal', chave: 'sistema', valor: 'Sistema', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_licitacao_canal', chave: 'whatsapp', valor: 'WhatsApp', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_licitacao_canal', chave: 'email', valor: 'Email', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_licitacao_canal', chave: 'sistema+whatsapp', valor: 'Sistema+WhatsApp', ativo: true },
+       // AlertaRH tipo
+       { empresa: demo._id, tipo: 'alerta_rh_tipo', chave: 'ferias_vencendo', valor: 'Férias Vencendo', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_tipo', chave: 'ferias_vencidas', valor: 'Férias Vencidas', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_tipo', chave: 'certificado_vencendo', valor: 'Certificado Vencendo', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_tipo', chave: 'certificado_vencido', valor: 'Certificado Vencido', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_tipo', chave: 'aso_vencendo', valor: 'ASO Vencendo', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_tipo', chave: 'aso_vencido', valor: 'ASO Vencido', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_tipo', chave: 'epi_vencendo', valor: 'EPI Vencendo', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_tipo', chave: 'epi_vencido', valor: 'EPI Vencido', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_tipo', chave: 'admissao_aniversario', valor: 'Admissão Aniversário', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_tipo', chave: 'desligamento_pendente', valor: 'Desligamento Pendente', ativo: true },
+       // AlertaRH canal
+       { empresa: demo._id, tipo: 'alerta_rh_canal', chave: 'sistema', valor: 'Sistema', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_canal', chave: 'whatsapp', valor: 'WhatsApp', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_canal', chave: 'email', valor: 'Email', ativo: true },
+       { empresa: demo._id, tipo: 'alerta_rh_canal', chave: 'sistema+whatsapp', valor: 'Sistema+WhatsApp', ativo: true },
+       // InteracaoIA status
+       { empresa: demo._id, tipo: 'interacao_ia_status', chave: 'processando', valor: 'Processando', ativo: true },
+       { empresa: demo._id, tipo: 'interacao_ia_status', chave: 'concluido', valor: 'Concluído', ativo: true },
+       { empresa: demo._id, tipo: 'interacao_ia_status', chave: 'erro', valor: 'Erro', ativo: true },
+       { empresa: demo._id, tipo: 'interacao_ia_status', chave: 'aguardando_confirmacao', valor: 'Aguardando Confirmação', ativo: true }
+     ]).catch(err => {
+       // Ignore duplicate key errors
+       if (err.code !== 11000) throw err;
+     });
 
    await seedDemoCompany(demo, admin._id);
   return { admin, created };

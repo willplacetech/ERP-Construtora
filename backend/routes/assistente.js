@@ -13,6 +13,7 @@ import ContextService from '../services/ContextService.js';
 import BriefingService from '../services/BriefingService.js';
 import { processarMensagemIA, executarPreviasConfirmadas } from '../services/assistente/whatsappProcessor.js';
 import crypto from 'crypto';
+import { sendWhatsAppMessageWithRetry } from '../services/whatsappService.js';
 
 const router = express.Router();
 
@@ -209,31 +210,45 @@ router.post('/webhook', async (req, res, next) => {
         ? { confirmacao: { previas: resultado.previas } } : {})
     });
 
-    // Log WhatsApp outbound message
-    await WhatsAppLog.create({
-      empresa: finalEmpresaId,
-      messageId: mensagemId,
-      status: 'sent',
-      tentativas: 1,
-      erro: null
-    });
+      // Send WhatsApp message via provider with retry
+      let providerMessageId = null;
+      try {
+        // Assume contatoId is the WhatsApp number in E.164 format; adjust if needed
+        const toNumber = String(contatoId).replace(/\D/g, '');
+        providerMessageId = await sendWhatsAppMessageWithRetry(toNumber, respostaTexto);
+        // Log successful outbound message
+        await WhatsAppLog.create({
+          empresa: finalEmpresaId,
+          messageId: mensagemId, // our internal id
+          status: 'sent',
+          tentativas: 1,
+          erro: null
+        });
+        // Optionally store providerMessageId in WhatsAppLog if we add a column; for now we ignore
+      } catch (sendErr) {
+        // Log failed outbound message
+        await WhatsAppLog.create({
+          empresa: finalEmpresaId,
+          messageId: mensagemId,
+          status: 'failed',
+          tentativas: 1,
+          erro: sendErr.message || 'Erro desconhecido'
+        });
+        // Still return 200 to prevent WhatsApp from retrying indefinitely
+        // In production, you might want to implement retry logic with exponential backoff
+        return res.status(200).json({ 
+          status: 'error', 
+          error: sendErr.message || 'Erro desconhecido',
+          timestamp: new Date().toISOString()
+        });
+      }
 
-    // Return success to WhatsApp provider
-    res.status(200).json({
-      status: 'success',
-      messageId: mensagemId,
-      timestamp: new Date().toISOString()
-    });
-  } catch (err) {
-    console.error('[WhatsApp Webhook] Error processing webhook:', err);
-    // Still return 200 to prevent WhatsApp from retrying indefinitely
-    // In production, you might want to implement retry logic with exponential backoff
-    res.status(200).json({ 
-      status: 'error', 
-      error: err.message || 'Erro desconhecido',
-      timestamp: new Date().toISOString()
-    });
-  }
+      // Return success to WhatsApp provider
+      res.status(200).json({
+        status: 'success',
+        messageId: mensagemId,
+        timestamp: new Date().toISOString()
+      });
 });
 
 // WhatsApp status endpoint (already existed, kept for compatibility)

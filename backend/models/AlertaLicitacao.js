@@ -14,7 +14,8 @@ const alertaLicitacaoSchema = new mongoose.Schema({
   tentativas: { type: Number, default: 0 },
   ultimaTentativa: Date,
   erroUltimaTentativa: String,
-  criadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
+  criadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  deletedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 alertaLicitacaoSchema.index({ empresa: 1, status: 1, dataEvento: 1 });

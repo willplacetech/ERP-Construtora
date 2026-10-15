@@ -5,6 +5,7 @@ import Ferias from '../models/Ferias.js';
 import AlertaRH from '../models/AlertaRH.js';
 import Colaborador from '../models/Colaborador.js';
 import mongoose from 'mongoose';
+import { auditAction } from '../services/auditService.js';
 
 // Validation helpers
 function validId(value) {
@@ -225,7 +226,7 @@ router.delete('/ferias/:id', async (req, res, next) => {
 router.get('/alertas-rh', async (req, res, next) => {
   try {
     const { colaborador, tipo, status, dataInicio, dataFim } = req.query;
-    const filtro = {};
+    const filtro = { deletedAt: null };
     if (colaborador) filtro.colaborador = colaborador;
     if (tipo) filtro.tipo = tipo;
     if (status) filtro.status = status;
@@ -238,13 +239,13 @@ router.get('/alertas-rh', async (req, res, next) => {
         }
         filtro.data.$gte = inicio;
       }
-       if (dataFim) {
-         const fim = new Date(dataFim);
-         if (Number.isNaN(fim.getTime())) {
-           return res.status(400).json({ error: 'Data de fim invalida' });
-         }
-         filtro.data.$lte = fim;
-       }
+      if (dataFim) {
+        const fim = new Date(dataFim);
+        if (Number.isNaN(fim.getTime())) {
+          return res.status(400).json({ error: 'Data de fim invalida' });
+        }
+        filtro.data.$lte = fim;
+      }
     }
     alertas = await AlertaRH.find(filtro).populate('colaborador', 'nome').sort({ data: -1 });
     res.json({ alertas });
@@ -256,65 +257,106 @@ router.get('/alertas-rh/:id', async (req, res, next) => {
     if (!validId(req.params.id)) {
       return res.status(400).json({ error: 'Identificador invalido' });
     }
-    const alerta = await AlertaRH.findById(req.params.id).populate('colaborador', 'nome');
-    if (!alerta) return res.status(404).json({ error: 'Alerta RH não encontrado' });
+    const alerta = await AlertaRH.findOne({ _id: req.params.id, deletedAt: null }).populate('colaborador', 'nome');
+    if (!alerta) return res.status(400).json({ error: 'Alerta RH não encontrado' });
     res.json({ alerta });
   } catch (err) { next(err); }
 });
 
 router.post('/alertas-rh', async (req, res, next) => {
-   try {
-     // Check for confirmation
-     if (!req.body.confirmacao || req.body.confirmacao !== true) {
-       return res.status(400).json({ error: 'Confirmação necessária para realizar esta ação' });
-     }
-     const payload = requestPayload(req.body, ['colaborador', 'tipo', 'mensagem', 'status', 'dataVencimento']);
-     if (!mongoose.isValidObjectId(payload.colaborador)) {
-       return res.status(400).json({ error: 'Colaborador invalido' });
-     }
-     const dataVencimento = payload.dataVencimento ? new Date(payload.dataVencimento) : undefined;
-     if (dataVencimento && Number.isNaN(dataVencimento.getTime())) {
-       return res.status(400).json({ error: 'Data de vencimento invalida' });
-     }
-     const alerta = await AlertaRH.create({ ...payload, dataVencimento });
-     res.status(201).json({ alerta });
-   } catch (err) { next(err); }
- });
+    try {
+      // Check for confirmation
+      if (!req.body.confirmacao || req.body.confirmacao !== true) {
+        return res.status(400).json({ error: 'Confirmação necessária para realizar esta ação' });
+      }
+      const payload = requestPayload(req.body, ['colaborador', 'tipo', 'mensagem', 'status', 'dataVencimento']);
+      if (!mongoose.isValidObjectId(payload.colaborador)) {
+        return res.status(400).json({ error: 'Colaborador invalido' });
+      }
+      const dataVencimento = payload.dataVencimento ? new Date(payload.dataVencimento) : undefined;
+      if (dataVencimento && Number.isNaN(dataVencimento.getTime())) {
+        return res.status(400).json({ error: 'Data de vencimento invalida' });
+      }
+      const alerta = await AlertaRH.create({ ...payload, dataVencimento });
+      // Audit
+      await auditAction({
+        empresaId: req.user.empresa,
+        usuarioId: req.user.id,
+        acao: 'create',
+        modelo: 'AlertaRH',
+        documentoId: alerta._id,
+        depois: alerta.toObject ? alerta.toObject() : alerta
+      });
+      res.status(201).json({ alerta });
+    } catch (err) { next(err); }
+});
 
 router.put('/alertas-rh/:id', async (req, res, next) => {
-   try {
-     // Check for confirmation
-     if (!req.body.confirmacao || req.body.confirmacao !== true) {
-       return res.status(400).json({ error: 'Confirmação necessária para realizar esta ação' });
-     }
-     if (!validId(req.params.id)) {
-       return res.status(400).json({ error: 'Identificador invalido' });
-     }
-     const payload = requestPayload(req.body, ['tipo', 'mensagem', 'status', 'dataVencimento']);
-     const dataVencimento = payload.dataVencimento ? new Date(payload.dataVencimento) : undefined;
-     if (dataVencimento && Number.isNaN(dataVencimento.getTime())) {
-       return res.status(400).json({ error: 'Data de vencimento invalida' });
-     }
-     const alerta = await AlertaRH.findByIdAndUpdate(req.params.id, { ...payload, dataVencimento }, { new: true, runValidators: true });
-     if (!alerta) return res.status(404).json({ error: 'Alerta RH não encontrado' });
-     res.json({ alerta });
-   } catch (err) { next(err); }
- });
+    try {
+      // Check for confirmation
+      if (!req.body.confirmacao || req.body.confirmacao !== true) {
+        return res.status(400).json({ error: 'Confirmação necessária para realizar esta ação' });
+      }
+      if (!validId(req.params.id)) {
+        return res.status(400).json({ error: 'Identificador invalido' });
+      }
+      const antes = await AlertaRH.findOne({ _id: req.params.id, deletedAt: null });
+      if (!antes) return res.status(404).json({ error: 'Alerta RH não encontrado' });
+      const payload = requestPayload(req.body, ['tipo', 'mensagem', 'status', 'dataVencimento']);
+      const dataVencimento = payload.dataVencimento ? new Date(payload.dataVencimento) : undefined;
+      if (dataVencimento && Number.isNaN(dataVencimento.getTime())) {
+        return res.status(400).json({ error: 'Data de vencimento invalida' });
+      }
+      const alerta = await AlertaRH.findOneAndUpdate(
+        { _id: req.params.id, deletedAt: null },
+        { ...payload, dataVencimento },
+        { new: true, runValidators: true }
+      );
+      if (!alerta) return res.status(404).json({ error: 'Alerta RH não encontrado' });
+      // Audit
+      await auditAction({
+        empresaId: req.user.empresa,
+        usuarioId: req.user.id,
+        acao: 'update',
+        modelo: 'AlertaRH',
+        documentoId: alerta._id,
+        antes: antes.toObject ? antes.toObject() : antes,
+        depois: alerta.toObject ? alerta.toObject() : alerta
+      });
+      res.json({ alerta });
+    } catch (err) { next(err); }
+});
 
 router.delete('/alertas-rh/:id', async (req, res, next) => {
-   try {
-     // Check for confirmation
-     if (!req.body.confirmacao || req.body.confirmacao !== true) {
-       return res.status(400).json({ error: 'Confirmação necessária para realizar esta ação' });
-     }
-     if (!validId(req.params.id)) {
-       return res.status(400).json({ error: 'Identificador invalido' });
-     }
-     const alerta = await AlertaRH.findByIdAndDelete(req.params.id);
-     if (!alerta) return res.status(404).json({ error: 'Alerta RH não encontrado' });
-     res.json({ message: 'Alerta RH removido' });
-   } catch (err) { next(err); }
- });
+    try {
+      // Check for confirmation
+      if (!req.body.confirmacao || req.body.confirmacao !== true) {
+        return res.status(400).json({ error: 'Confirmação necessária para realizar esta ação' });
+      }
+      if (!validId(req.params.id)) {
+        return res.status(400).json({ error: 'Identificador invalido' });
+      }
+      const antes = await AlertaRH.findOne({ _id: req.params.id, deletedAt: null });
+      if (!antes) return res.status(404).json({ error: 'Alerta RH não encontrado' });
+      const alerta = await AlertaRH.findOneAndUpdate(
+        { _id: req.params.id },
+        { deletedAt: new Date() },
+        { new: true }
+      );
+      if (!alerta) return res.status(404).json({ error: 'Alerta RH não encontrado' });
+      // Audit
+      await auditAction({
+        empresaId: req.user.empresa,
+        usuarioId: req.user.id,
+        acao: 'delete',
+        modelo: 'AlertaRH',
+        documentoId: alerta._id,
+        antes: antes.toObject ? antes.toObject() : antes,
+        depois: alerta.toObject ? alerta.toObject() : alerta
+      });
+      res.json({ message: 'Alerta RH removido' });
+    } catch (err) { next(err); }
+});
 
 // COLABORADORES
 router.get('/colaboradores', async (req, res, next) => {
