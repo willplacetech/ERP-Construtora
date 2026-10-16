@@ -13,6 +13,7 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const startedAt = Date.now();
 
 app.use(cors({
   origin: process.env.CORS_ORIGIN?.split(',') || '*',
@@ -64,7 +65,6 @@ routeModules.filter(Boolean).forEach(({ file, routeModule }) => {
   const router = routeModule.default || routeModule;
   const routeName = file.replace('.js', '');
   app.use(`/api/${routeName}`, router);
-  // alias kebab-case para o front legado
   if (routeName === 'usuarioWhatsApp') {
     app.use('/api/usuario-whatsapp', router);
   }
@@ -72,7 +72,16 @@ routeModules.filter(Boolean).forEach(({ file, routeModule }) => {
 });
 
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+  const mongoStates = ['disconnected', 'connected', 'connecting', 'disconnecting'];
+  const mongoState = mongoStates[mongoose.connection.readyState] || 'unknown';
+  const ok = mongoose.connection.readyState === 1;
+  res.status(ok ? 200 : 503).json({
+    status: ok ? 'OK' : 'DEGRADED',
+    mongo: mongoState,
+    uptimeSec: Math.round((Date.now() - startedAt) / 1000),
+    timestamp: new Date().toISOString(),
+    version: process.env.npm_package_version || '1.0.0'
+  });
 });
 
 app.use((err, req, res, next) => {
