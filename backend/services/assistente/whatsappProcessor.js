@@ -1,21 +1,28 @@
 import * as ferramentas from './ferramentas.js';
 import Lancamento from '../../models/Lancamento.js';
 import RecebivelObra from '../../models/RecebivelObra.js';
+import DiarioObra from '../../models/DiarioObra.js';
+import Medicao from '../../models/Medicao.js';
+import Etapa from '../../models/Etapa.js';
 import ArquivoDocumento from '../../models/ArquivoDocumento.js';
 import { SYSTEM_PROMPT } from './LLMService.js';
 import { getLlmRouter } from '../llm/index.js';
 import { processarDocumentoFinanceiro } from './fluxoFinanceiro.js';
+import { montarPreviaRdo, montarPreviaMedicao, statusFisicoFinanceiro, buscarObraPorTexto } from './fluxoEngenharia.js';
 
-const SISTEMA_WHATSAPP_PROMPT = `${SYSTEM_PROMPT}\n\nREGRAS ADICIONAIS PARA WHATSAPP:\n1. VOCÊ NÃO EXECUTA AÇÕES DIRETAMENTE. Você prepara PRÉVIAS para confirmação humana.\n2. Para criar lançamentos, baixar títulos, etc. → SEMPRE gere uma PRÉVIA.\n3. NUNCA grave sem confirmação humana.`;
+const SISTEMA_WHATSAPP_PROMPT = `${SYSTEM_PROMPT}\n\nREGRAS ADICIONAIS PARA WHATSAPP:\n1. VOCÊ NÃO EXECUTA AÇÕES DIRETAMENTE. Você prepara PRÉVIAS para confirmação humana.\n2. RDO e medições também exigem SIM/NÃO.\n3. NUNCA grave sem confirmação humana.`;
 
 function extrairIntencaoKeyword(mensagem) {
   const msg = String(mensagem || '').toLowerCase();
+  if (msg.includes('rdo') || msg.includes('diário') || msg.includes('diario') || msg.includes('diário de obra') || msg.includes('diario de obra')) return 'rdo';
+  if (msg.includes('medição') || msg.includes('medicao') || msg.includes('medir') || msg.includes('avanço') || msg.includes('avanco')) return 'medicao';
+  if (msg.includes('físico') || msg.includes('fisico') || msg.includes('% obra') || msg.includes('percentual')) return 'status_obra';
   if (msg.includes('pagar') || msg.includes('venc') || msg.includes('conta') || msg.includes('boleto') || msg.includes('pix')) return 'contas_pagar';
   if (msg.includes('receber') || msg.includes('recebimento') || msg.includes('nf') || msg.includes('nota fiscal')) return 'contas_receber';
   if (msg.includes('reembolso') || msg.includes('reembolsar')) return 'reembolso';
   if (msg.includes('cheque') || msg.includes('folha')) return 'cheque';
   if (msg.includes('acordo') || msg.includes('parcela') || msg.includes('negoci')) return 'acordo';
-  if (msg.includes('obra') || msg.includes('medição') || msg.includes('medicao') || msg.includes('recebivel')) return 'recebivel_obra';
+  if (msg.includes('recebivel') || msg.includes('recebível')) return 'recebivel_obra';
   if (msg.includes('resumo') || msg.includes('dia') || msg.includes('hoje') || msg.includes('amanhã') || msg.includes('amanha')) return 'resumo_dia';
   if (msg === 'sim' || msg === 'confirmo' || msg.startsWith('sim ')) return 'confirm';
   if (msg === 'nao' || msg === 'não' || msg.startsWith('nao ') || msg.startsWith('não ')) return 'deny';
@@ -53,17 +60,26 @@ export async function processarMensagemIA({
   anexo
 }) {
   const intencao = await classificarIntencao(mensagem);
+  const msgLower = String(mensagem || '').toLowerCase();
+  const pareceRdo = intencao === 'rdo' || msgLower.includes('rdo') || msgLower.includes('diário') || msgLower.includes('diario');
 
-  // Anexo → pipeline financeiro unificado (PIX/boleto/NF/comprovante)
+  // Anexo: se for RDO (texto menciona) usa engenharia; senão financeiro
   if (anexo?.url || anexo?.base64 || anexo?.imagemBase64) {
+    const imagem = anexo.url || anexo.base64 || anexo.imagemBase64;
+    if (pareceRdo || intencao === 'rdo') {
+      return montarPreviaRdo({
+        empresaId,
+        mensagem,
+        imagemBase64: imagem,
+        usuarioWhatsAppId
+      });
+    }
     try {
-      const imagem = anexo.url || anexo.base64 || anexo.imagemBase64;
       const fluxo = await processarDocumentoFinanceiro({
         empresaId,
         imagemBase64: imagem,
         mensagem
       });
-
       try {
         await ArquivoDocumento.create({
           empresa: empresaId,
@@ -79,7 +95,6 @@ export async function processarMensagemIA({
       } catch (e) {
         console.warn('[WhatsApp] ArquivoDocumento:', e.message);
       }
-
       if (fluxo.sucesso) {
         return {
           resposta: fluxo.resposta,
@@ -94,7 +109,7 @@ export async function processarMensagemIA({
     } catch (error) {
       console.error('[IA] Erro ao processar anexo:', error);
       return {
-        resposta: 'Não consegui ler o documento. Tente outra foto ou descreva o pagamento.',
+        resposta: 'Não consegui ler o documento. Tente outra foto ou descreva o pagamento / RDO.',
         requerConfirmacao: false,
         previas: [],
         ferramentasUsadas: [],
@@ -105,7 +120,7 @@ export async function processarMensagemIA({
 
   if (intencao === 'confirm') {
     return {
-      resposta: 'Para confirmar a prévia, use o botão Confirmar na conversa (web) ou aguarde o fluxo de confirmação.',
+      resposta: 'Para confirmar a prévia, responda SIM na conversa WhatsApp ou use o botão no app.',
       requerConfirmacao: false,
       previas: [],
       ferramentasUsadas: [],
@@ -123,44 +138,43 @@ export async function processarMensagemIA({
   }
 
   switch (intencao) {
+    case 'rdo':
+      return montarPreviaRdo({ empresaId, mensagem, usuarioWhatsAppId });
+    case 'medicao':
+      return montarPreviaMedicao({ empresaId, mensagem });
+    case 'status_obra': {
+      const obra = await buscarObraPorTexto(empresaId, mensagem);
+      if (!obra) {
+        return {
+          resposta: 'Informe a obra, ex.: "percentual obra CAPS".',
+          requerConfirmacao: false,
+          previas: [],
+          ferramentasUsadas: [],
+          fontes: []
+        };
+      }
+      const st = await statusFisicoFinanceiro(empresaId, obra._id);
+      return {
+        resposta:
+          `🏗️ *${st.obra.nome}*\n` +
+          `Físico: ${st.percentualFisico}%\n` +
+          `Financeiro: ${st.percentualFinanceiro}%\n` +
+          `Gap (físico − financeiro): ${st.gap} p.p.\n` +
+          (st.etapas?.length
+            ? `Etapas: ${st.etapas.slice(0, 5).map((e) => `${e.descricao} ${e.quantidadeMedida}/${e.quantidadeTotal}`).join('; ')}`
+            : ''),
+        requerConfirmacao: false,
+        previas: [],
+        ferramentasUsadas: ['statusFisicoFinanceiro'],
+        fontes: [{ tipo: 'obra', referenciaId: obra._id, nome: obra.nome }]
+      };
+    }
     case 'resumo_dia':
       return processarResumoDia(empresaId);
     case 'contas_pagar':
       return processarConsultaContasPagar(empresaId, mensagem);
     case 'contas_receber':
       return processarConsultaContasReceber(empresaId);
-    case 'reembolso':
-      return {
-        resposta: 'Envie o comprovante da despesa e diga "reembolso [nome]".',
-        requerConfirmacao: false,
-        previas: [],
-        ferramentasUsadas: [],
-        fontes: []
-      };
-    case 'cheque':
-      return {
-        resposta: 'Envie a foto do cheque ou peça "cheques em aberto".',
-        requerConfirmacao: false,
-        previas: [],
-        ferramentasUsadas: [],
-        fontes: []
-      };
-    case 'acordo':
-      return {
-        resposta: 'Informe cliente ou obra para consultar acordos.',
-        requerConfirmacao: false,
-        previas: [],
-        ferramentasUsadas: [],
-        fontes: []
-      };
-    case 'recebivel_obra':
-      return {
-        resposta: 'Informe a obra para consultar recebíveis.',
-        requerConfirmacao: false,
-        previas: [],
-        ferramentasUsadas: [],
-        fontes: []
-      };
     default:
       return processarConsultaGeral(empresaId, mensagem);
   }
@@ -174,7 +188,6 @@ async function processarResumoDia(empresaId) {
     for (const item of resumo.contasPagar.itens.slice(0, 5)) {
       texto += `• ${item.fornecedor} — ${item.valor} → vence ${new Date(item.dataVencimento).toLocaleDateString('pt-BR')} (${item.diasVencimento}d)\n`;
     }
-    texto += '\n';
   }
   return {
     resposta: texto,
@@ -240,12 +253,21 @@ async function processarConsultaContasReceber(empresaId) {
 async function processarConsultaGeral(empresaId, mensagem) {
   const resumo = await ferramentas.resumoDoDia({ empresaId });
   return {
-    resposta: `Recebi: "${mensagem}". Use anexos (PIX/boleto/NF) para baixar títulos com confirmação. Alertas: ${resumo.totalAlertas || 0}.`,
+    resposta:
+      `Recebi: "${mensagem}".\n` +
+      `Comandos: PIX/boleto/NF (anexo) · RDO obra X: serviços · medição 10 m2 etapa Y obra X · percentual obra X.\n` +
+      `Alertas: ${resumo.totalAlertas || 0}.`,
     requerConfirmacao: false,
     previas: [],
     ferramentasUsadas: ['resumoDoDia'],
     fontes: []
   };
+}
+
+function startOfDay(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
 }
 
 export async function executarPreviasConfirmadas(empresaId, previas, usuarioId) {
@@ -265,17 +287,73 @@ export async function executarPreviasConfirmadas(empresaId, previas, usuarioId) 
           },
           { new: true }
         );
-        if (!updated) {
-          resultados.push({ ok: false, erro: 'Lançamento não encontrado para esta empresa', acao: 'baixar' });
-        } else {
-          resultados.push({ ok: true, sucesso: true, modelo: 'Lancamento', id: updated._id, acao: 'baixar' });
-        }
+        if (!updated) resultados.push({ ok: false, erro: 'Lançamento não encontrado', acao: 'baixar' });
+        else resultados.push({ ok: true, sucesso: true, modelo: 'Lancamento', id: updated._id, acao: 'baixar' });
       } else if (previa.modelo === 'Lancamento' && previa.acao === 'criar') {
         const created = await Lancamento.create({ ...previa.dados, empresa: empresaId });
         resultados.push({ ok: true, sucesso: true, modelo: 'Lancamento', id: created._id, acao: 'criar' });
       } else if (previa.modelo === 'RecebivelObra' && previa.acao === 'criar') {
         const created = await RecebivelObra.create({ ...previa.dados, empresa: empresaId });
         resultados.push({ ok: true, sucesso: true, modelo: 'RecebivelObra', id: created._id, acao: 'criar' });
+      } else if (previa.modelo === 'DiarioObra' && previa.acao === 'criar') {
+        const data = startOfDay(previa.dados.data || new Date());
+        const payload = {
+          ...previa.dados,
+          data,
+          empresa: empresaId,
+          confirmado: true,
+          confirmadoEm: new Date(),
+          confirmadoPor: usuarioId || undefined
+        };
+        let created;
+        try {
+          created = await DiarioObra.create(payload);
+        } catch (err) {
+          if (err.code === 11000) {
+            created = await DiarioObra.findOneAndUpdate(
+              { empresa: empresaId, obra: previa.dados.obra, data },
+              { $set: { ...payload, confirmado: true } },
+              { new: true }
+            );
+          } else throw err;
+        }
+        resultados.push({ ok: true, sucesso: true, modelo: 'DiarioObra', id: created._id, acao: 'criar' });
+      } else if (previa.modelo === 'Medicao' && previa.acao === 'criar') {
+        const { obra, etapa, quantidade } = previa.dados;
+        const q = Number(quantidade);
+        const etapaAtualizada = await Etapa.findOneAndUpdate(
+          {
+            _id: etapa,
+            obra,
+            empresa: empresaId,
+            $expr: { $lte: [{ $add: ['$quantidadeMedida', q] }, '$quantidadeTotal'] }
+          },
+          [
+            {
+              $set: {
+                quantidadeMedida: { $add: ['$quantidadeMedida', q] },
+                status: {
+                  $cond: [
+                    { $gte: [{ $add: ['$quantidadeMedida', q] }, '$quantidadeTotal'] },
+                    'concluida',
+                    'em_andamento'
+                  ]
+                }
+              }
+            }
+          ],
+          { new: true }
+        );
+        if (!etapaAtualizada) {
+          resultados.push({ ok: false, sucesso: false, erro: 'Etapa sem saldo ou inexistente', acao: 'criar' });
+        } else {
+          const created = await Medicao.create({
+            ...previa.dados,
+            empresa: empresaId,
+            responsavel: previa.dados.responsavel || 'Assistente'
+          });
+          resultados.push({ ok: true, sucesso: true, modelo: 'Medicao', id: created._id, acao: 'criar' });
+        }
       } else {
         resultados.push({ ok: false, sucesso: false, erro: `Ação não suportada: ${previa.modelo}/${previa.acao}` });
       }
