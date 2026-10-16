@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { enviarBriefingsProativos } from '../services/whatsapp/proactiveAlerts.js';
 import { enviarAlertasCertidoesWhatsApp } from '../services/whatsapp/proactiveJuridico.js';
 import { enviarAlertasLicitacoesWhatsApp } from '../services/whatsapp/proactiveLicitacoes.js';
+import { enviarAlertasRHWhatsApp } from '../services/whatsapp/proactiveRH.js';
 
 let started = false;
 
@@ -30,6 +31,11 @@ export function startCronJobs() {
       name: 'licitações',
       expr: process.env.CRON_LICITACOES_WHATSAPP || '30 9 * * 1-5',
       fn: () => enviarAlertasLicitacoesWhatsApp()
+    },
+    {
+      name: 'rh',
+      expr: process.env.CRON_RH_WHATSAPP || '0 10 * * 1-5',
+      fn: () => enviarAlertasRHWhatsApp()
     }
   ];
 
