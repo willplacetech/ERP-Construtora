@@ -4,11 +4,18 @@ import BriefingPanel from '../../components/BriefingPanel.jsx';
 import ConfidenceBadge from '../../components/ConfidenceBadge.jsx';
 
 const PERGUNTAS_RAPIDAS = [
-  'Quais contas vencem essa semana?',
-  'O que está atrasado?',
   'Resumo do dia',
-  'Como estão as obras?',
+  'Quais contas vencem essa semana?',
+  'certidões',
+  'licitações',
   'RH precisa de atenção?'
+];
+
+const ATALHOS_OPERACAO = [
+  { label: '👷 RH', msg: 'RH' },
+  { label: '⚖️ Certidões', msg: 'certidões' },
+  { label: '📋 Licitações', msg: 'licitações' },
+  { label: '📐 % obra', msg: 'percentual obra' }
 ];
 
 function MarcaDemo() {
@@ -51,7 +58,7 @@ function BubbleAssistente({ mensagem, fontes, acaoSugerida, demo }) {
         const ehUrgente = linha.startsWith('🟠');
         const ehAtencao = linha.startsWith('🟡');
         const ehVerde = linha.startsWith('🟢');
-        const ehResumo = linha.startsWith('📋');
+        const ehResumo = linha.startsWith('📋') || linha.startsWith('👷') || linha.startsWith('⚖️');
         let bgExtra = null;
         if (ehCritico) bgExtra = 'rgba(239, 68, 68, .12)';
         else if (ehUrgente) bgExtra = 'rgba(245, 185, 66, .08)';
@@ -96,12 +103,43 @@ function BubbleUsuario({ mensagem }) {
   );
 }
 
-/** Card genérico PIX / boleto / NF / comprovante com match e confirmação humana */
+/** Prévia genérica (RDO, certidão, licitação, férias…) com confirmação humana */
+function CardPreviaOperacional({
+  resposta,
+  interacaoId,
+  confirmacaoId,
+  onConfirmar,
+  confirmando,
+  titulo = 'Prévia'
+}) {
+  return (
+    <div style={{
+      maxWidth: '90%',
+      background: 'var(--fundo-card)',
+      border: '2px solid #21c7a8',
+      borderRadius: '4px 16px 16px 16px',
+      padding: 14,
+      lineHeight: 1.5
+    }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: '#21c7a8', marginBottom: 8 }}>✅ {titulo}</div>
+      <div style={{ fontSize: 13, whiteSpace: 'pre-wrap', marginBottom: 12 }}>{resposta}</div>
+      <button
+        type="button"
+        className="btn btn-primario btn-mini"
+        disabled={!interacaoId || !confirmacaoId || confirmando}
+        onClick={() => onConfirmar(interacaoId, confirmacaoId)}
+        style={{ fontWeight: 600 }}
+      >
+        {confirmando ? 'Executando…' : 'Confirmar e gravar'}
+      </button>
+    </div>
+  );
+}
+
 function CardDocumentoFinanceiro({
   dados,
   modo,
   candidatos = [],
-  obras = [],
   isDemo,
   confidence,
   lowConfidence,
@@ -174,17 +212,36 @@ function CardDocumentoFinanceiro({
           {confirmando ? 'Executando…' : 'Confirmar e gravar'}
         </button>
       </div>
-      {(!interacaoId || !confirmacaoId) && (
-        <div style={{ marginTop: 8, fontSize: 11, color: '#91a4b2' }}>
-          Use a aba Lançamentos se a confirmação não aparecer aqui.
-        </div>
-      )}
     </div>
   );
 }
 
 function BellIcon() {
   return <span aria-hidden>🔔</span>;
+}
+
+/** Detecta se a mensagem deve ir pelo pipeline operacional (prévias) */
+function isComandoOperacional(texto) {
+  const t = String(texto || '').toLowerCase();
+  return (
+    t.includes('rdo') ||
+    t.includes('diário') ||
+    t.includes('diario') ||
+    t.includes('medição') ||
+    t.includes('medicao') ||
+    t.includes('certidão') ||
+    t.includes('certidao') ||
+    t.includes('cnd') ||
+    t.includes('licita') ||
+    t.includes('pregão') ||
+    t.includes('pregao') ||
+    t.includes('férias') ||
+    t.includes('ferias') ||
+    t === 'rh' ||
+    t.startsWith('rh ') ||
+    t.includes('percentual') ||
+    t.includes('% obra')
+  );
 }
 
 export default function Assistente() {
@@ -227,11 +284,49 @@ export default function Assistente() {
     return p;
   };
 
+  const enviarOperacional = async (pergunta) => {
+    setChat((prev) => [...prev, { tipo: 'user', texto: pergunta }]);
+    setCarregando(true);
+    setErro('');
+    try {
+      const { data } = await api.post('/assistente/whatsapp/processar', { mensagem: pergunta });
+      if (data.requerConfirmacao && data.previas?.length) {
+        setChat((prev) => [...prev, {
+          tipo: 'previa',
+          texto: data.resposta,
+          interacaoId: data.interacaoId,
+          confirmacaoId: data.confirmacaoId,
+          titulo: 'Prévia — confirme para gravar'
+        }]);
+      } else {
+        setChat((prev) => [...prev, {
+          tipo: 'assistant',
+          texto: data.resposta,
+          fontes: data.fontes,
+          acaoSugerida: '',
+          demo: false
+        }]);
+      }
+    } catch (err) {
+      const msg = err.response?.data?.error || 'Falha no comando operacional.';
+      setErro(msg);
+      setChat((prev) => [...prev, { tipo: 'assistant', texto: msg, fontes: [], acaoSugerida: '' }]);
+    } finally {
+      setCarregando(false);
+    }
+  };
+
   const enviarMensagem = async (texto) => {
     const pergunta = (texto || mensagem).trim();
     if (!pergunta) return;
     setMensagem('');
     setErro('');
+
+    if (isComandoOperacional(pergunta)) {
+      await enviarOperacional(pergunta);
+      return;
+    }
+
     setChat((prev) => [...prev, { tipo: 'user', texto: pergunta }]);
     setCarregando(true);
     try {
@@ -293,7 +388,6 @@ export default function Assistente() {
     setChat((prev) => [...prev, { tipo: 'assistant', texto: 'Analisando documento (PIX/boleto/NF)…', fontes: [], acaoSugerida: '' }]);
     setCarregando(true);
     try {
-      // Prefer pipeline completo com prévias salvas
       let data;
       try {
         const resp = await api.post('/assistente/documento/processar', { imagemBase64: base64 });
@@ -378,9 +472,9 @@ export default function Assistente() {
     <div>
       <div className="topbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h2 style={{ margin: 0 }}>Consultas e alertas</h2>
+          <h2 style={{ margin: 0 }}>Assistente operacional</h2>
           <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
-            Briefing, consultas e baixa assistida (PIX / boleto / NF)
+            Financeiro · RDO · Certidões · Licitações · RH — sempre com confirmação humana
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -414,6 +508,11 @@ export default function Assistente() {
       )}
 
       <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {ATALHOS_OPERACAO.map((a) => (
+          <button key={a.label} type="button" className="btn btn-primario btn-mini" disabled={carregando} onClick={() => enviarOperacional(a.msg)} style={{ fontSize: 12 }}>
+            {a.label}
+          </button>
+        ))}
         {PERGUNTAS_RAPIDAS.map((p) => (
           <button key={p} type="button" className="btn btn-linha btn-mini" disabled={carregando} onClick={() => enviarMensagem(p)} style={{ fontSize: 12 }}>{p}</button>
         ))}
@@ -428,12 +527,21 @@ export default function Assistente() {
             {msg.tipo === 'assistant' && (
               <BubbleAssistente mensagem={msg.texto} fontes={msg.fontes} acaoSugerida={msg.acaoSugerida} demo={msg.demo ?? demo} />
             )}
+            {msg.tipo === 'previa' && (
+              <CardPreviaOperacional
+                resposta={msg.texto}
+                interacaoId={msg.interacaoId}
+                confirmacaoId={msg.confirmacaoId}
+                onConfirmar={confirmarPrevias}
+                confirmando={confirmando === msg.confirmacaoId}
+                titulo={msg.titulo}
+              />
+            )}
             {msg.tipo === 'documento' && (
               <CardDocumentoFinanceiro
                 dados={msg.fotoData}
                 modo={msg.modo}
                 candidatos={msg.candidatos}
-                obras={msg.obras}
                 isDemo={msg.isDemo}
                 confidence={msg.confidence}
                 lowConfidence={msg.lowConfidence}
@@ -458,7 +566,7 @@ export default function Assistente() {
           onChange={(e) => setMensagem(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={2}
-          placeholder="Pergunte sobre contas, obras… ou envie um documento"
+          placeholder='Ex.: "férias João de 01/12/2026 a 30/12/2026" · "RDO obra X: …" · "certidões"'
           style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid var(--borda)', background: 'var(--fundo-input)', color: 'var(--texto)', resize: 'vertical' }}
           disabled={carregando}
         />
