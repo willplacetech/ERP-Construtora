@@ -2,35 +2,31 @@ import Lancamento from '../models/Lancamento.js';
 import Obra from '../models/Obra.js';
 import Colaborador from '../models/Colaborador.js';
 import Licitacao from '../models/Licitacao.js';
-import DocumentoJuridico from '../models/DocumentoJuridico.js';
-import Financeiro from '../models/Financeiro.js';
-import RH from '../models/RH.js';
 import Orcamento from '../models/Orcamento.js';
 import Certidao from '../models/Certidao.js';
 import Juridico from '../models/Juridico.js';
 import PropostaLicitacao from '../models/PropostaLicitacao.js';
+import RH from '../models/RH.js';
+
+const fmtBRL = (v) =>
+  Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export class ContextService {
-  /**
-   * Monta snapshot operacional completo para prompts do LLM
-   * @param {ObjectId} empresaId - ID da empresa
-   * @param {ObjectId} usuarioId - ID do usuário (para filtros de permissão)
-   * @returns {Promise<Object>} Dados estruturados para contexto
-   */
   static async getOperationalContext(empresaId, usuarioId) {
     try {
-      const [financeiroContext, obrasContext, rhContext, juridicoContext, licitacoesContext] = await Promise.all([
-        this.getFinanceiroContext(empresaId),
-        this.getObrasContext(empresaId),
-        this.getRHContext(empresaId, usuarioId),
-        this.getJuridicoContext(empresaId),
-        this.getLicitacoesContext(empresaId)
-      ]);
+      const [financeiroContext, obrasContext, rhContext, juridicoContext, licitacoesContext] =
+        await Promise.all([
+          this.getFinanceiroContext(empresaId),
+          this.getObrasContext(empresaId),
+          this.getRHContext(empresaId, usuarioId),
+          this.getJuridicoContext(empresaId),
+          this.getLicitacoesContext(empresaId)
+        ]);
 
       return {
         timestamp: new Date().toISOString(),
         empresa: empresaId.toString(),
-        usuario: usuarioId.toString(),
+        usuario: usuarioId?.toString?.() || String(usuarioId),
         financeiro: financeiroContext,
         obras: obrasContext,
         rh: rhContext,
@@ -46,106 +42,111 @@ export class ContextService {
       };
     } catch (error) {
       console.error('[ContextService] Erro ao montar contexto operacional:', error);
-      // Retornar contexto mínimo em caso de erro
       return {
         timestamp: new Date().toISOString(),
         empresa: empresaId.toString(),
-        usuario: usuarioId.toString(),
+        usuario: usuarioId?.toString?.() || String(usuarioId),
         erro: 'Falha ao carregar alguns dados de contexto'
       };
     }
   }
 
   /**
-   * Contexto Financeiro: contas a pagar/receber, fluxo de caixa, etc.
+   * Contexto Financeiro alinhado ao model operacional real: Lancamento
    */
   static async getFinanceiroContext(empresaId) {
     try {
-      // Contas a vencer nos próximos 7 dias
-      const contasVencendo = await Financeiro.find({
-        empresa: empresaId,
-        status: 'pendente',
-        dataVencimento: {
-          $gte: new Date(),
-          $lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-        }
-      }).sort({ dataVencimento: 1 }).limit(10);
+      const agora = new Date();
+      const em7dias = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      const em30dias = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-      // Contas já vencidas
-      const contasVencidas = await Financeiro.find({
+      const baseFiltro = {
         empresa: empresaId,
-        status: 'pendente',
-        dataVencimento: { $lt: new Date() }
-      }).sort({ dataVencimento: 1 }).limit(10);
+        deletedAt: null,
+        status: { $nin: ['pago', 'cancelado', 'recebido'] }
+      };
 
-      // Fluxo de caixa projetado (próximos 30 dias)
-      const fluxoCaixa = await Financeiro.aggregate([
-        {
-          $match: {
-            empresa: empresaId,
-            dataVencimento: {
-              $gte: new Date(),
-              $lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+      const [contasVencendo, contasVencidas, fluxoCaixa] = await Promise.all([
+        Lancamento.find({
+          ...baseFiltro,
+          dataVencimento: { $gte: agora, $lte: em7dias }
+        })
+          .sort({ dataVencimento: 1 })
+          .limit(15)
+          .select('descricao valor dataVencimento tipo status fornecedor')
+          .lean(),
+        Lancamento.find({
+          ...baseFiltro,
+          dataVencimento: { $lt: agora }
+        })
+          .sort({ dataVencimento: 1 })
+          .limit(15)
+          .select('descricao valor dataVencimento tipo status fornecedor')
+          .lean(),
+        Lancamento.aggregate([
+          {
+            $match: {
+              empresa: empresaId,
+              deletedAt: null,
+              status: { $nin: ['pago', 'cancelado', 'recebido'] },
+              dataVencimento: { $gte: agora, $lte: em30dias }
             }
-          }
-        },
-        {
-          $group: {
-            _id: {
-              $dateToString: { format: '%Y-%m-%d', date: '$dataVencimento' }
-            },
-            total: { $sum: '$valor' },
-            count: { $sum: 1 }
-          }
-        },
-        { $sort: { _id: 1 } }
+          },
+          {
+            $group: {
+              _id: { $dateToString: { format: '%Y-%m-%d', date: '$dataVencimento' } },
+              total: { $sum: '$valor' },
+              count: { $sum: 1 }
+            }
+          },
+          { $sort: { _id: 1 } }
+        ])
       ]);
 
+      const totalVencendo = contasVencendo.reduce((sum, c) => sum + (Number(c.valor) || 0), 0);
+      const totalVencidas = contasVencidas.reduce((sum, c) => sum + (Number(c.valor) || 0), 0);
+
       return {
-        contasVencendo: contasVencendo.map(c => ({
-          id: c._id,
-          descricao: c.descricao,
-          valor: c.valor,
-          vencimento: c.dataVencimento,
-          tipo: c.tipo
-        })),
-        contasVencidas: contasVencidas.map(c => ({
+        fonte: 'Lancamento',
+        contasVencendo: contasVencendo.map((c) => ({
           id: c._id,
           descricao: c.descricao,
           valor: c.valor,
           vencimento: c.dataVencimento,
           tipo: c.tipo,
-          diasAtraso: Math.floor((Date.now() - c.dataVencimento) / (24 * 60 * 60 * 1000))
+          status: c.status,
+          fornecedor: c.fornecedor || null
+        })),
+        contasVencidas: contasVencidas.map((c) => ({
+          id: c._id,
+          descricao: c.descricao,
+          valor: c.valor,
+          vencimento: c.dataVencimento,
+          tipo: c.tipo,
+          status: c.status,
+          diasAtraso: Math.floor((Date.now() - new Date(c.dataVencimento).getTime()) / 86400000)
         })),
         fluxoCaixaProjetado: fluxoCaixa,
-        totalVencendo: contasVencendo.reduce((sum, c) => sum + c.valor, 0),
-        totalVencidas: contasVencidas.reduce((sum, c) => sum + c.valor, 0)
+        totalVencendo,
+        totalVencidas,
+        qtdVencendo: contasVencendo.length,
+        qtdVencidas: contasVencidas.length
       };
     } catch (error) {
       console.error('[ContextService] Erro no contexto financeiro:', error);
-      return { erro: 'Falha ao carregar dados financeiros' };
+      return { erro: 'Falha ao carregar dados financeiros', fonte: 'Lancamento' };
     }
   }
 
-  /**
-   * Contexto Obras: etapas atrasadas, orçamentos, medições
-   */
   static async getObrasContext(empresaId) {
     try {
-      // Obras em andamento
       const obrasEmAndamento = await Obra.find({
         empresa: empresaId,
         status: 'em_andamento'
-      }).select('nome codigo orcamentoCliente dataInicio dataTerminoPrevista');
+      }).select('nome codigo orcamentoCliente dataInicio dataTerminoPrevista dataPrevisaoFim');
 
-      // Obras com etapas atrasadas
       const obrasComEtapasAtrasadas = await Obra.aggregate([
-        {
-          $match: {
-            empresa: empresaId,
-            status: 'em_andamento'
-          }
-        },
+        { $match: { empresa: empresaId, status: 'em_andamento' } },
         {
           $lookup: {
             from: 'etapas',
@@ -161,18 +162,21 @@ export class ContextService {
                 input: '$etapas',
                 as: 'etapa',
                 cond: {
-                  $and: [
+                  $or: [
                     { $eq: ['$$etapa.status', 'atrasado'] },
-                    { $gte: ['$$etapa.dataTerminoPrevisto', new Date()] }
+                    {
+                      $and: [
+                        { $ne: ['$$etapa.status', 'concluida'] },
+                        { $lt: ['$$etapa.prazoEntrega', new Date()] }
+                      ]
+                    }
                   ]
                 }
               }
             }
           }
         },
-        {
-          $match: { 'etapasAtrasadas.0': { $exists: true } }
-        },
+        { $match: { 'etapasAtrasadas.0': { $exists: true } } },
         {
           $project: {
             nome: 1,
@@ -183,12 +187,17 @@ export class ContextService {
                 as: 'etapa',
                 in: {
                   id: '$$etapa._id',
-                  nome: '$$etapa.nome',
+                  nome: { $ifNull: ['$$etapa.descricao', '$$etapa.nome'] },
                   atrasoDias: {
                     $floor: {
                       $divide: [
-                        { $subtract: [new Date(), '$$etapa.dataTerminoPrevisto'] },
-                        24 * 60 * 60 * 1000
+                        {
+                          $subtract: [
+                            new Date(),
+                            { $ifNull: ['$$etapa.prazoEntrega', '$$etapa.dataTerminoPrevisto'] }
+                          ]
+                        },
+                        86400000
                       ]
                     }
                   }
@@ -199,29 +208,30 @@ export class ContextService {
         }
       ]);
 
-      // Orçamentos pendentes de aprovação
       const orcamentosPendentes = await Orcamento.find({
         empresa: empresaId,
-        status: 'pendente_aprovacao'
-      }).select('valor totalCliente status dataValidade').limit(5);
+        status: { $in: ['pendente_aprovacao', 'pendente'] }
+      })
+        .select('valor totalCliente status dataValidade')
+        .limit(5);
 
       return {
-        obrasEmAndamento: obrasEmAndamento.map(o => ({
+        obrasEmAndamento: obrasEmAndamento.map((o) => ({
           id: o._id,
           nome: o.nome,
           codigo: o.codigo,
           orcamento: o.orcamentoCliente,
           inicio: o.dataInicio,
-          terminoPrevisto: o.dataTerminoPrevista
-        })),  
-        obrasComEtapasAtrasadas: obrasComEtapasAtrasadas.map(o => ({
+          terminoPrevisto: o.dataTerminoPrevista || o.dataPrevisaoFim
+        })),
+        obrasComEtapasAtrasadas: obrasComEtapasAtrasadas.map((o) => ({
           id: o._id,
           nome: o.nome,
           codigo: o.codigo,
           etapasAtrasadas: o.etapasAtrasadas
         })),
         totalObrasEmAndamento: obrasEmAndamento.length,
-        orcamentosPendentes: orcamentosPendentes.map(o => ({
+        orcamentosPendentes: orcamentosPendentes.map((o) => ({
           id: o._id,
           valor: o.valor,
           cliente: o.totalCliente,
@@ -235,61 +245,97 @@ export class ContextService {
     }
   }
 
-  /**
-   * Contexto RH: férias vencidas, treinamentos pendentes, etc.
-   */
-  static async getRHContext(empresaId, usuarioId) {
+  static async getRHContext(empresaId) {
     try {
-      // Funcionários com férias vencidas
-      const feriasVencidas = await RH.find({
-        empresa: empresaId,
-        tipo: 'ferias',
-        status: 'aprovado',
-        dataTermino: { $lt: new Date() }
-      }).select('funcionario nome dataInicio dataTermino dias').limit(10);
+      const hoje = new Date();
+      const limite30 = new Date(Date.now() + 30 * 86400000);
 
-      // Treinamentos pendentes
-      const treinamentosPendentes = await RH.find({
-        empresa: empresaId,
-        tipo: 'treinamento',
-        status: 'agendado',
-        data: { $gte: new Date() }
-      }).select('funcionario nome data local').limit(10);
+      let feriasVencidas = [];
+      let treinamentosPendentes = [];
+      let admissoesRecent = [];
 
-      // Admissões recentes (últimos 30 dias)
-      const admissoesRecent = await RH.find({
-        empresa: empresaId,
-        tipo: 'admissao',
-        data: {
-          $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      try {
+        feriasVencidas = await RH.find({
+          empresa: empresaId,
+          tipo: 'ferias',
+          status: 'aprovado',
+          dataTermino: { $lt: hoje }
+        })
+          .select('funcionario nome dataInicio dataTermino dias')
+          .limit(10);
+
+        treinamentosPendentes = await RH.find({
+          empresa: empresaId,
+          tipo: 'treinamento',
+          status: 'agendado',
+          data: { $gte: hoje }
+        })
+          .select('funcionario nome data local')
+          .limit(10);
+
+        admissoesRecent = await RH.find({
+          empresa: empresaId,
+          tipo: 'admissao',
+          data: { $gte: new Date(Date.now() - 30 * 86400000) }
+        })
+          .select('funcionario nome data cargo')
+          .limit(10);
+      } catch {
+        /* collection RH pode não existir / schema diferente */
+      }
+
+      // Documentos de colaboradores (ASO, EPI) — alinhado às tools do assistente
+      const colaboradores = await Colaborador.find({ empresa: empresaId, status: 'ativo' })
+        .select('nome funcao documentos')
+        .limit(200)
+        .lean();
+
+      const docsVencendo = [];
+      for (const col of colaboradores) {
+        for (const doc of col.documentos || []) {
+          if (!doc.validade) continue;
+          const validade = new Date(doc.validade);
+          const diff = Math.ceil((validade - hoje) / 86400000);
+          if (diff <= 30) {
+            docsVencendo.push({
+              colaborador: col.nome,
+              tipoDoc: doc.tipo,
+              nomeDoc: doc.nome,
+              dataValidade: doc.validade,
+              diasRestantes: diff
+            });
+          }
         }
-      }).select('funcionario nome data cargo').limit(10);
+      }
+      docsVencendo.sort((a, b) => a.diasRestantes - b.diasRestantes);
 
       return {
-        feriasVencidas: feriasVencidas.map(f => ({
+        feriasVencidas: feriasVencidas.map((f) => ({
           id: f._id,
           funcionario: f.funcionario,
           nome: f.nome,
           periodo: `${f.dataInicio} a ${f.dataTermino}`,
           dias: f.dias,
-          diasVencidos: Math.floor((Date.now() - f.dataTermino) / (24 * 60 * 60 * 1000))
+          diasVencidos: Math.floor((Date.now() - new Date(f.dataTermino).getTime()) / 86400000)
         })),
-        treinamentosPendentes: treinamentosPendentes.map(t => ({
+        treinamentosPendentes: treinamentosPendentes.map((t) => ({
           id: t._id,
           funcionario: t.funcionario,
           nome: t.nome,
           data: t.data,
           local: t.local
         })),
-        admissoesRecent: admissoesRecent.map(a => ({
+        admissoesRecent: admissoesRecent.map((a) => ({
           id: a._id,
           funcionario: a.funcionario,
           nome: a.nome,
           data: a.data,
           cargo: a.cargo
         })),
+        documentosVencendo: docsVencendo.slice(0, 15),
         totalFeriasVencidas: feriasVencidas.length,
-        totalTreinamentosPendentes: treinamentosPendentes.length
+        totalTreinamentosPendentes: treinamentosPendentes.length,
+        totalDocumentosVencendo: docsVencendo.length
       };
     } catch (error) {
       console.error('[ContextService] Erro no contexto RH:', error);
@@ -297,43 +343,48 @@ export class ContextService {
     }
   }
 
-  /**
-   * Contexto Jurídico: certidões vencidas, ações em andamento
-   */
   static async getJuridicoContext(empresaId) {
     try {
-      // Certidões vencidas ou vencendo em 30 dias
       const certidoesVencendo = await Certidao.find({
         empresa: empresaId,
         dataVencimento: {
           $gte: new Date(),
-          $lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+          $lte: new Date(Date.now() + 30 * 86400000)
         }
-      }).select('tipo numero orgao dataEmissao dataVencimento valor').limit(10);
+      })
+        .select('tipo numero orgao dataEmissao dataVencimento nome valor')
+        .limit(10);
 
-      // A jurídicas em andamento
-      const juridicosEmAndamento = await Juridico.find({
-        empresa: empresaId,
-        status: { $in: ['em_andamento', 'recurso'] }
-      }).select('tipo numero assunto valorCausa dataDistribuicao').limit(10);
+      let juridicosEmAndamento = [];
+      try {
+        juridicosEmAndamento = await Juridico.find({
+          empresa: empresaId,
+          status: { $in: ['em_andamento', 'recurso'] }
+        })
+          .select('tipo numero assunto valorCausa dataDistribuicao')
+          .limit(10);
+      } catch {
+        /* model opcional */
+      }
 
       return {
-        certidoesVencendo: certidoesVencendo.map(c => ({
+        certidoesVencendo: certidoesVencendo.map((c) => ({
           id: c._id,
           tipo: c.tipo,
           numero: c.numero,
+          nome: c.nome,
           orgao: c.orgao,
           vencimento: c.dataVencimento,
-          diasParaVencer: Math.floor((c.dataVencimento - new Date()) / (24 * 60 * 60 * 1000))
+          diasParaVencer: Math.floor((new Date(c.dataVencimento) - new Date()) / 86400000)
         })),
-        juridicosEmAndamento: juridicosEmAndamento.map(j => ({
+        juridicosEmAndamento: juridicosEmAndamento.map((j) => ({
           id: j._id,
           tipo: j.tipo,
           numero: j.numero,
           assunto: j.assunto,
           valorCausa: j.valorCausa,
           distribuicao: j.dataDistribuicao
-        })), 
+        })),
         totalCertidoesVencendo: certidoesVencendo.length,
         totalJuridicosEmAndamento: juridicosEmAndamento.length
       };
@@ -343,29 +394,28 @@ export class ContextService {
     }
   }
 
-  /**
-   * Contexto Licitacoes: processos em andamento, propostas vencendo
-   */
   static async getLicitacoesContext(empresaId) {
     try {
-      // Licitacoes em andamento
       const licitacoesEmAndamento = await Licitacao.find({
         empresa: empresaId,
         status: { $in: ['aberto', 'em_andamento'] }
-      }).select('numero objeto valor dataAbertura dataEncerramento').limit(10);
+      })
+        .select('numero objeto valor dataAbertura dataEncerramento')
+        .limit(10);
 
-      // Propostas vencendo em 7 dias
       const propostasVencendo = await PropostaLicitacao.find({
         empresa: empresaId,
         status: 'pendente',
         dataLimite: {
           $gte: new Date(),
-          $lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+          $lte: new Date(Date.now() + 7 * 86400000)
         }
-      }).select('licitacao valor classificacao dataLimite').limit(10);
+      })
+        .select('licitacao valor classificacao dataLimite')
+        .limit(10);
 
       return {
-        licitacoesEmAndamento: licitacoesEmAndamento.map(l => ({
+        licitacoesEmAndamento: licitacoesEmAndamento.map((l) => ({
           id: l._id,
           numero: l.numero,
           objeto: l.objeto,
@@ -373,13 +423,13 @@ export class ContextService {
           abertura: l.dataAbertura,
           encerramento: l.dataEncerramento
         })),
-        propostasVencendo: propostasVencendo.map(p => ({
+        propostasVencendo: propostasVencendo.map((p) => ({
           id: p._id,
           licitacao: p.licitacao,
           valor: p.valor,
           classificacao: p.classificacao,
           limite: p.dataLimite,
-          diasParaLimite: Math.floor((p.dataLimite - new Date()) / (24 * 60 * 60 * 1000))
+          diasParaLimite: Math.floor((new Date(p.dataLimite) - new Date()) / 86400000)
         })),
         totalLicitacoesEmAndamento: licitacoesEmAndamento.length,
         totalPropostasVencendo: propostasVencendo.length
@@ -390,56 +440,62 @@ export class ContextService {
     }
   }
 
-  /**
-   * Gera resumo executivo baseado nos contextos
-   */
   static generateExecutiveSummary(contexts) {
-    const { financeiro, obras, rh, juridico, licitacoes } = contexts;
+    const { financeiro = {}, obras = {}, rh = {}, juridico = {}, licitacoes = {} } = contexts;
     const resumo = [];
 
-    // Alertas críticos financeiros
-    if (financeiro.totalVencidas > 0) {
-      resumo.push(`🔴 ${financeiro.totalVencidas} contas vencidas totalizando R$ ${financeiro.totalVencidas.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+    const qtdVencidas = financeiro.qtdVencidas ?? (financeiro.contasVencidas || []).length;
+    const qtdVencendo = financeiro.qtdVencendo ?? (financeiro.contasVencendo || []).length;
+
+    if (qtdVencidas > 0) {
+      resumo.push(
+        `🔴 ${qtdVencidas} contas vencidas totalizando R$ ${fmtBRL(financeiro.totalVencidas)}`
+      );
     }
 
-    if (financeiro.totalVencendo > 0) {
-      resumo.push(`🟠 ${financeiro.contasVencendo.length} contas vencendo nesta semana (R$ ${financeiro.totalVencendo.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`);
+    if (qtdVencendo > 0) {
+      resumo.push(
+        `🟠 ${qtdVencendo} contas vencendo nesta semana (R$ ${fmtBRL(financeiro.totalVencendo)})`
+      );
     }
 
-    // Alertas de obras
-    if (obras.obrasComEtapasAtrasadas.length > 0) {
+    if ((obras.obrasComEtapasAtrasadas || []).length > 0) {
       resumo.push(`🔴 ${obras.obrasComEtapasAtrasadas.length} obras com etapas atrasadas`);
     }
 
-    // Alertas RH
-    if (rh.totalFeriasVencidas > 0) {
+    if ((rh.totalFeriasVencidas || 0) > 0) {
       resumo.push(`🟡 ${rh.totalFeriasVencidas} funcionários com férias vencidas`);
     }
 
-    if (rh.totalTreinamentosPendentes > 0) {
+    if ((rh.totalDocumentosVencendo || 0) > 0) {
+      resumo.push(`🟡 ${rh.totalDocumentosVencendo} documentos de RH vencendo em até 30 dias`);
+    }
+
+    if ((rh.totalTreinamentosPendentes || 0) > 0) {
       resumo.push(`🟡 ${rh.totalTreinamentosPendentes} treinamentos pendentes`);
     }
 
-    // Alertas jurídicos
-    if (juridico.totalCertidoesVencendo > 0) {
+    if ((juridico.totalCertidoesVencendo || 0) > 0) {
       resumo.push(`🔴 ${juridico.totalCertidoesVencendo} certidões vencendo`);
     }
 
-    if (juridico.totalJuridicosEmAndamento > 0) {
+    if ((juridico.totalJuridicosEmAndamento || 0) > 0) {
       resumo.push(`🟠 ${juridico.totalJuridicosEmAndamento} questões jurídicas em andamento`);
     }
 
-    // Alertas licitações
-    if (licitacoes.totalPropostasVencendo > 0) {
+    if ((licitacoes.totalPropostasVencendo || 0) > 0) {
       resumo.push(`🟡 ${licitacoes.totalPropostasVencendo} propostas vencendo nesta semana`);
     }
 
-    // Se não houver alertas, mostrar situação normal
     if (resumo.length === 0) {
-      resumo.push(`🟢 Operação normal: sem alertas críticos no momento`);
-      resumo.push(`📊 ${financeiro.contasVencendo.length} contas a vencer, ${obras.obrasEmAndamento.length} obras em andamento`);
+      resumo.push('🟢 Operação normal: sem alertas críticos no momento');
+      resumo.push(
+        `📊 ${qtdVencendo} contas a vencer, ${obras.totalObrasEmAndamento || (obras.obrasEmAndamento || []).length || 0} obras em andamento`
+      );
     }
 
     return resumo.join('\n');
   }
 }
+
+export default ContextService;
