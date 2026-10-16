@@ -1,4 +1,5 @@
 import * as ferramentas from './ferramentas.js';
+import { getLlmRouter } from '../llm/index.js';
 
 const CONFIDENCE_THRESHOLD = Number(process.env.LLM_RECEIPT_CONFIDENCE_THRESHOLD || 0.7);
 
@@ -15,66 +16,99 @@ function comMetadadosConfianca(result, extras = {}) {
   const confidence = normalizarConfidence(result?.confidence ?? extras.confidence ?? 0.5);
   const isDemo = !!(result?.isDemo || result?.demo);
   const lowConfidence = !isDemo && confidence < CONFIDENCE_THRESHOLD;
+  const semValor =
+    result?.amount == null &&
+    result?.valor == null &&
+    result?.valorTotal == null &&
+    result?.dados?.valor == null;
   return {
     ...result,
     ...extras,
     confidence,
     lowConfidence,
     threshold: CONFIDENCE_THRESHOLD,
-    exigeRevisao: lowConfidence || result?.amount == null && result?.valor == null && !isDemo,
+    exigeRevisao: lowConfidence || (semValor && !isDemo),
     isDemo
   };
 }
 
-async function processarComLLM(base64, prompt, responseFormat = { type: 'json_object' }) {
-  const OpenAIAssistente = (await import('./OpenAIAssistente.js')).default;
-  const GeminiAssistente = (await import('./GeminiAssistente.js')).default;
+function parseJsonLoose(text) {
+  if (text == null) return {};
+  if (typeof text === 'object') return text;
+  const raw = String(text).trim();
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {
+        return { raw, confidence: 0.2 };
+      }
+    }
+    return { raw, confidence: 0.2 };
+  }
+}
 
-  let implementacao;
-  if (process.env.OPENAI_API_KEY) {
-    implementacao = new OpenAIAssistente();
-  } else if (process.env.GEMINI_API_KEY) {
-    implementacao = new GeminiAssistente();
-  } else {
+/**
+ * Extrai base64 puro (remove data-URL prefix se houver).
+ * Se receber URL http(s), faz download (útil no WhatsApp).
+ */
+async function normalizarImagemBase64(input) {
+  if (!input || typeof input !== 'string') {
+    throw new Error('Imagem inválida');
+  }
+  let data = input.trim();
+  if (data.startsWith('data:') && data.includes('base64,')) {
+    data = data.split('base64,')[1];
+  }
+  if (/^https?:\/\//i.test(data)) {
+    const res = await fetch(data);
+    if (!res.ok) throw new Error(`Falha ao baixar imagem: HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    data = buf.toString('base64');
+  }
+  return data;
+}
+
+/**
+ * Vision via LlmRouter: OpenAI cloud-first → Ollama vision fallback.
+ * Sem provider → modo demo.
+ */
+async function processarComLLM(base64OrUrl, prompt) {
+  const health = await getLlmRouter().health();
+  if (!health.cloud && !health.ollama) {
     return { isDemo: true, demo: true, confidence: 0.3 };
   }
 
-  if (implementacao.constructor.name === 'OpenAIAssistente') {
-    const openai = await implementacao.getCliente();
-    const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_VISION_MODEL || 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Você extrai dados de comprovantes financeiros brasileiros. Responda APENAS JSON válido. Não invente dados; use null se ilegível. Inclua sempre "confidence" de 0 a 1.'
-        },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64}` } }
-          ]
-        }
-      ],
-      max_tokens: 900,
-      response_format: responseFormat
-    });
-    return JSON.parse(response.choices[0].message.content);
-  }
+  const base64 = await normalizarImagemBase64(base64OrUrl);
+  const systemHint =
+    'Você extrai dados de comprovantes financeiros brasileiros. Responda APENAS JSON válido. Não invente dados; use null se ilegível. Inclua sempre "confidence" de 0 a 1.';
 
-  const genAI = await implementacao.getGenAI();
-  const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-1.5-flash' });
-  const result = await model.generateContent([
-    prompt + '\nInclua sempre o campo numeric "confidence" (0 a 1). Responda APENAS JSON.',
-    { inlineData: { data: base64, mimeType: 'image/jpeg' } }
-  ]);
-  const texto = await result.response.text();
   try {
-    const match = texto.match(/\{[\s\S]*\}/);
-    return JSON.parse(match ? match[0] : texto);
-  } catch {
-    return { raw: texto, confidence: 0.2 };
+    const { text, provider, latencyMs } = await getLlmRouter().completeWithVision({
+      prompt: `${systemHint}\n\n${prompt}`,
+      imageBase64: base64,
+      mimeType: 'image/jpeg',
+      purpose: 'receipt_ocr'
+    });
+    const parsed = parseJsonLoose(text);
+    console.log(
+      JSON.stringify({
+        evt: 'ocr.complete',
+        provider,
+        latency_ms: latencyMs,
+        confidence: parsed.confidence
+      })
+    );
+    return parsed;
+  } catch (err) {
+    console.error('[extratorFoto] vision failed:', err.message);
+    if (err.code === 'provider_down') {
+      return { isDemo: true, demo: true, confidence: 0.3, error: err.message };
+    }
+    throw err;
   }
 }
 
@@ -184,15 +218,8 @@ export function obrasAtivas(empresaId) {
 }
 
 export async function analisarImagem(base64) {
-  const OpenAIAssistente = (await import('./OpenAIAssistente.js')).default;
-  const GeminiAssistente = (await import('./GeminiAssistente.js')).default;
-
-  let implementacao;
-  if (process.env.OPENAI_API_KEY) {
-    implementacao = new OpenAIAssistente();
-  } else if (process.env.GEMINI_API_KEY) {
-    implementacao = new GeminiAssistente();
-  } else {
+  const health = await getLlmRouter().health();
+  if (!health.cloud && !health.ollama) {
     return comMetadadosConfianca({
       tipo: 'comprovante_abastecimento',
       dados: {
@@ -219,45 +246,8 @@ Se for PIX: {tipo:'pix', confidence:NUMBER, dados:{valor:NUMBER, favorecido:STRI
 Se for outro: {tipo:'outro', confidence:NUMBER, resumo:STRING}
 Responda APENAS JSON, sem markdown.`;
 
-  let parsed;
-  if (implementacao.constructor.name === 'OpenAIAssistente') {
-    const openai = await implementacao.getCliente();
-    const response = await openai.chat.completions.create({
-      model: process.env.OPENAI_VISION_MODEL || 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content: 'Classifique documentos financeiros. Responda APENAS JSON com confidence 0-1.'
-        },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: prompt },
-            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64}` } }
-          ]
-        }
-      ],
-      max_tokens: 700,
-      response_format: { type: 'json_object' }
-    });
-    parsed = JSON.parse(response.choices[0].message.content);
-  } else {
-    const genAI = await implementacao.getGenAI();
-    const model = genAI.getGenerativeModel({ model: process.env.GEMINI_MODEL || 'gemini-1.5-flash' });
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { data: base64, mimeType: 'image/jpeg' } }
-    ]);
-    const texto = await result.response.text();
-    try {
-      const match = texto.match(/\{[\s\S]*\}/);
-      parsed = JSON.parse(match[0]);
-    } catch {
-      parsed = { tipo: 'outro', resumo: texto, confidence: 0.2 };
-    }
-  }
-
-  return comMetadadosConfianca(parsed);
+  const result = await processarComLLM(base64, prompt);
+  return comMetadadosConfianca(result);
 }
 
 export { CONFIDENCE_THRESHOLD, normalizarConfidence, comMetadadosConfianca };
