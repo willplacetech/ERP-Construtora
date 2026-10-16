@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { enviarBriefingsProativos } from '../services/whatsapp/proactiveAlerts.js';
 import { enviarAlertasCertidoesWhatsApp } from '../services/whatsapp/proactiveJuridico.js';
+import { enviarAlertasLicitacoesWhatsApp } from '../services/whatsapp/proactiveLicitacoes.js';
 
 let started = false;
 
@@ -14,35 +15,38 @@ export function startCronJobs() {
     return;
   }
 
-  const exprBriefing = process.env.CRON_BRIEFING_WHATSAPP || '0 8 * * 1-5';
-  if (cron.validate(exprBriefing)) {
-    cron.schedule(exprBriefing, async () => {
-      console.log('[cron] briefing proativo iniciando…');
-      try {
-        await enviarBriefingsProativos({ force: false });
-      } catch (err) {
-        console.error('[cron] briefing falhou:', err.message);
-      }
-    });
-    console.log(`[cron] briefing WhatsApp agendado: ${exprBriefing}`);
-  } else {
-    console.error('[cron] expressão briefing inválida:', exprBriefing);
-  }
+  const jobs = [
+    {
+      name: 'briefing',
+      expr: process.env.CRON_BRIEFING_WHATSAPP || '0 8 * * 1-5',
+      fn: () => enviarBriefingsProativos({ force: false })
+    },
+    {
+      name: 'certidões',
+      expr: process.env.CRON_CERTIDOES_WHATSAPP || '0 9 * * 1-5',
+      fn: () => enviarAlertasCertidoesWhatsApp()
+    },
+    {
+      name: 'licitações',
+      expr: process.env.CRON_LICITACOES_WHATSAPP || '30 9 * * 1-5',
+      fn: () => enviarAlertasLicitacoesWhatsApp()
+    }
+  ];
 
-  // Certidões: seg–sex 09:00 (após briefing)
-  const exprJuridico = process.env.CRON_CERTIDOES_WHATSAPP || '0 9 * * 1-5';
-  if (cron.validate(exprJuridico)) {
-    cron.schedule(exprJuridico, async () => {
-      console.log('[cron] alertas certidões iniciando…');
+  for (const job of jobs) {
+    if (!cron.validate(job.expr)) {
+      console.error(`[cron] expressão inválida (${job.name}):`, job.expr);
+      continue;
+    }
+    cron.schedule(job.expr, async () => {
+      console.log(`[cron] ${job.name} iniciando…`);
       try {
-        await enviarAlertasCertidoesWhatsApp();
+        await job.fn();
       } catch (err) {
-        console.error('[cron] certidões falhou:', err.message);
+        console.error(`[cron] ${job.name} falhou:`, err.message);
       }
     });
-    console.log(`[cron] certidões WhatsApp agendado: ${exprJuridico}`);
-  } else {
-    console.error('[cron] expressão certidões inválida:', exprJuridico);
+    console.log(`[cron] ${job.name} agendado: ${job.expr}`);
   }
 }
 
