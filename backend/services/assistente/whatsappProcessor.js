@@ -4,26 +4,34 @@ import RecebivelObra from '../../models/RecebivelObra.js';
 import DiarioObra from '../../models/DiarioObra.js';
 import Medicao from '../../models/Medicao.js';
 import Etapa from '../../models/Etapa.js';
+import Certidao from '../../models/Certidao.js';
 import ArquivoDocumento from '../../models/ArquivoDocumento.js';
 import { SYSTEM_PROMPT } from './LLMService.js';
 import { getLlmRouter } from '../llm/index.js';
 import { processarDocumentoFinanceiro } from './fluxoFinanceiro.js';
 import { montarPreviaRdo, montarPreviaMedicao, statusFisicoFinanceiro, buscarObraPorTexto } from './fluxoEngenharia.js';
+import { montarPreviaCertidao, resumoCertidoes } from './fluxoJuridico.js';
 
-const SISTEMA_WHATSAPP_PROMPT = `${SYSTEM_PROMPT}\n\nREGRAS ADICIONAIS PARA WHATSAPP:\n1. VOCÊ NÃO EXECUTA AÇÕES DIRETAMENTE. Você prepara PRÉVIAS para confirmação humana.\n2. RDO e medições também exigem SIM/NÃO.\n3. NUNCA grave sem confirmação humana.`;
+const SISTEMA_WHATSAPP_PROMPT = `${SYSTEM_PROMPT}\n\nREGRAS ADICIONAIS PARA WHATSAPP:\n1. VOCÊ NÃO EXECUTA AÇÕES DIRETAMENTE. Você prepara PRÉVIAS para confirmação humana.\n2. RDO, medições e certidões exigem SIM/NÃO.\n3. NUNCA grave sem confirmação humana.`;
 
 function extrairIntencaoKeyword(mensagem) {
   const msg = String(mensagem || '').toLowerCase();
+  if (msg.includes('certidão') || msg.includes('certidao') || msg.includes('cnd') || msg.includes('cndt')) {
+    if (msg.includes('vence') || msg.includes('vencid') || msg.includes('lista') || msg === 'certidões' || msg === 'certidoes') {
+      return 'certidoes_vencendo';
+    }
+    return 'certidao';
+  }
   if (msg.includes('rdo') || msg.includes('diário') || msg.includes('diario') || msg.includes('diário de obra') || msg.includes('diario de obra')) return 'rdo';
   if (msg.includes('medição') || msg.includes('medicao') || msg.includes('medir') || msg.includes('avanço') || msg.includes('avanco')) return 'medicao';
   if (msg.includes('físico') || msg.includes('fisico') || msg.includes('% obra') || msg.includes('percentual')) return 'status_obra';
-  if (msg.includes('pagar') || msg.includes('venc') || msg.includes('conta') || msg.includes('boleto') || msg.includes('pix')) return 'contas_pagar';
+  if (msg.includes('pagar') || msg.includes('conta') || msg.includes('boleto') || msg.includes('pix')) return 'contas_pagar';
   if (msg.includes('receber') || msg.includes('recebimento') || msg.includes('nf') || msg.includes('nota fiscal')) return 'contas_receber';
   if (msg.includes('reembolso') || msg.includes('reembolsar')) return 'reembolso';
   if (msg.includes('cheque') || msg.includes('folha')) return 'cheque';
   if (msg.includes('acordo') || msg.includes('parcela') || msg.includes('negoci')) return 'acordo';
   if (msg.includes('recebivel') || msg.includes('recebível')) return 'recebivel_obra';
-  if (msg.includes('resumo') || msg.includes('dia') || msg.includes('hoje') || msg.includes('amanhã') || msg.includes('amanha')) return 'resumo_dia';
+  if (msg.includes('resumo') || msg.includes('hoje') || msg.includes('amanhã') || msg.includes('amanha')) return 'resumo_dia';
   if (msg === 'sim' || msg === 'confirmo' || msg.startsWith('sim ')) return 'confirm';
   if (msg === 'nao' || msg === 'não' || msg.startsWith('nao ') || msg.startsWith('não ')) return 'deny';
   return 'consulta_geral';
@@ -62,16 +70,27 @@ export async function processarMensagemIA({
   const intencao = await classificarIntencao(mensagem);
   const msgLower = String(mensagem || '').toLowerCase();
   const pareceRdo = intencao === 'rdo' || msgLower.includes('rdo') || msgLower.includes('diário') || msgLower.includes('diario');
+  const pareceCertidao =
+    intencao === 'certidao' ||
+    msgLower.includes('certidão') ||
+    msgLower.includes('certidao') ||
+    msgLower.includes('cnd');
 
-  // Anexo: se for RDO (texto menciona) usa engenharia; senão financeiro
   if (anexo?.url || anexo?.base64 || anexo?.imagemBase64) {
     const imagem = anexo.url || anexo.base64 || anexo.imagemBase64;
-    if (pareceRdo || intencao === 'rdo') {
+    if (pareceRdo) {
       return montarPreviaRdo({
         empresaId,
         mensagem,
         imagemBase64: imagem,
         usuarioWhatsAppId
+      });
+    }
+    if (pareceCertidao) {
+      return montarPreviaCertidao({
+        empresaId,
+        mensagem: mensagem || 'certidão',
+        imagemBase64: imagem
       });
     }
     try {
@@ -109,7 +128,7 @@ export async function processarMensagemIA({
     } catch (error) {
       console.error('[IA] Erro ao processar anexo:', error);
       return {
-        resposta: 'Não consegui ler o documento. Tente outra foto ou descreva o pagamento / RDO.',
+        resposta: 'Não consegui ler o documento. Tente outra foto ou descreva pagamento / RDO / certidão.',
         requerConfirmacao: false,
         previas: [],
         ferramentasUsadas: [],
@@ -138,6 +157,10 @@ export async function processarMensagemIA({
   }
 
   switch (intencao) {
+    case 'certidao':
+      return montarPreviaCertidao({ empresaId, mensagem });
+    case 'certidoes_vencendo':
+      return resumoCertidoes(empresaId);
     case 'rdo':
       return montarPreviaRdo({ empresaId, mensagem, usuarioWhatsAppId });
     case 'medicao':
@@ -182,19 +205,24 @@ export async function processarMensagemIA({
 
 async function processarResumoDia(empresaId) {
   const resumo = await ferramentas.resumoDoDia({ empresaId });
+  const cert = await resumoCertidoes(empresaId);
   let texto = '📋 **Resumo do Dia**\n\n';
   if (resumo.contasPagar?.itens?.length > 0) {
     texto += '🔴 **CRÍTICO — Contas a pagar:**\n';
     for (const item of resumo.contasPagar.itens.slice(0, 5)) {
       texto += `• ${item.fornecedor} — ${item.valor} → vence ${new Date(item.dataVencimento).toLocaleDateString('pt-BR')} (${item.diasVencimento}d)\n`;
     }
+    texto += '\n';
+  }
+  if (cert.itens?.length) {
+    texto += cert.resposta + '\n';
   }
   return {
     resposta: texto,
     requerConfirmacao: false,
     previas: [],
-    ferramentasUsadas: ['resumoDoDia'],
-    fontes: resumo.contasPagar?.fontes || []
+    ferramentasUsadas: ['resumoDoDia', 'fluxoJuridico.listar'],
+    fontes: [...(resumo.contasPagar?.fontes || []), ...(cert.fontes || [])]
   };
 }
 
@@ -255,7 +283,7 @@ async function processarConsultaGeral(empresaId, mensagem) {
   return {
     resposta:
       `Recebi: "${mensagem}".\n` +
-      `Comandos: PIX/boleto/NF (anexo) · RDO obra X: serviços · medição 10 m2 etapa Y obra X · percentual obra X.\n` +
+      `Comandos: PIX/boleto/NF · RDO · medição · percentual obra · certidões · certidão [nome] vence dd/mm/aaaa.\n` +
       `Alertas: ${resumo.totalAlertas || 0}.`,
     requerConfirmacao: false,
     previas: [],
@@ -354,6 +382,9 @@ export async function executarPreviasConfirmadas(empresaId, previas, usuarioId) 
           });
           resultados.push({ ok: true, sucesso: true, modelo: 'Medicao', id: created._id, acao: 'criar' });
         }
+      } else if (previa.modelo === 'Certidao' && previa.acao === 'criar') {
+        const created = await Certidao.create({ ...previa.dados, empresa: empresaId });
+        resultados.push({ ok: true, sucesso: true, modelo: 'Certidao', id: created._id, acao: 'criar' });
       } else {
         resultados.push({ ok: false, sucesso: false, erro: `Ação não suportada: ${previa.modelo}/${previa.acao}` });
       }
