@@ -18,6 +18,7 @@ import { getLlmRouter } from '../services/llm/index.js';
 import { registerEngenhariaRoutes } from './assistenteEngenharia.js';
 import { registerJuridicoRoutes } from './assistenteJuridico.js';
 import { registerLicitacoesRoutes } from './assistenteLicitacoes.js';
+import { registerRHRoutes } from './assistenteRH.js';
 
 const router = express.Router();
 
@@ -385,11 +386,9 @@ router.get('/historico', async (req, res, next) => {
   }
 });
 
-// Sprint C — RDO / medição
 registerEngenhariaRoutes(router);
-// Sprint D — certidões
 registerJuridicoRoutes(router);
-// Sprint E — licitações
 registerLicitacoesRoutes(router);
+registerRHRoutes(router);
 
 export default router;
