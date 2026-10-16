@@ -1,14 +1,47 @@
 import { LLMService, FERRAMENTAS_DISPONIVEIS } from './LLMService.js';
 
 const ESQUEMA_FERRAMENTAS = {
-  resumoDoDia: { description: 'Resumo completo do dia: contas, etapas, obras, certidões e documentos', parameters: { type: 'object', properties: {} } },
-  contasAPagarVencendo: { description: 'Contas a pagar vencendo em N dias (padrão 7)', parameters: { type: 'object', properties: { dias: { type: 'number', description: 'Dias para busca (padrão 7)' } } } },
-  contasAReceberAtrasadas: { description: 'Contas a receber atrasadas', parameters: { type: 'object', properties: {} } },
-  etapasVencendo: { description: 'Etapas vencendo em até N dias (padrão 15)', parameters: { type: 'object', properties: { dias: { type: 'number', description: 'Dias para busca (padrão 15)' } } } },
-  obrasAtrasadas: { description: 'Obras com andamento atrasado', parameters: { type: 'object', properties: {} } },
-  certidoesVencendo: { description: 'Certidões vencendo em até N dias (padrão 30)', parameters: { type: 'object', properties: { dias: { type: 'number', description: 'Dias para busca (padrão 30)' } } } },
-  documentosRHVencendo: { description: 'Documentos de RH vencendo (ASO, EPI, contrato)', parameters: { type: 'object', properties: {} } },
-  medicoesPendentes: { description: 'Medições/etapas pendentes', parameters: { type: 'object', properties: {} } }
+  resumoDoDia: {
+    description: 'Resumo completo do dia: contas, etapas, obras, certidões e documentos',
+    parameters: { type: 'object', properties: {} }
+  },
+  contasAPagarVencendo: {
+    description: 'Contas a pagar vencendo em N dias (padrão 7)',
+    parameters: {
+      type: 'object',
+      properties: { dias: { type: 'number', description: 'Dias para busca (padrão 7)' } }
+    }
+  },
+  contasAReceberAtrasadas: {
+    description: 'Contas a receber atrasadas',
+    parameters: { type: 'object', properties: {} }
+  },
+  etapasVencendo: {
+    description: 'Etapas vencendo em até N dias (padrão 15)',
+    parameters: {
+      type: 'object',
+      properties: { dias: { type: 'number', description: 'Dias para busca (padrão 15)' } }
+    }
+  },
+  obrasAtrasadas: {
+    description: 'Obras com andamento atrasado',
+    parameters: { type: 'object', properties: {} }
+  },
+  certidoesVencendo: {
+    description: 'Certidões vencendo em até N dias (padrão 30)',
+    parameters: {
+      type: 'object',
+      properties: { dias: { type: 'number', description: 'Dias para busca (padrão 30)' } }
+    }
+  },
+  documentosRHVencendo: {
+    description: 'Documentos de RH vencendo (ASO, EPI, contrato)',
+    parameters: { type: 'object', properties: {} }
+  },
+  medicoesPendentes: {
+    description: 'Medições/etapas pendentes',
+    parameters: { type: 'object', properties: {} }
+  }
 };
 
 function getTools() {
@@ -22,6 +55,25 @@ function getTools() {
 function extrairFontes(resultado) {
   if (!resultado || !resultado.fontes) return [];
   return resultado.fontes;
+}
+
+function montarSystemPrompt(contextoOperacional) {
+  let base = `Você é a assistente do PROPRIETÁRIO da Construtora. Foco: prefeituras, prazos, fluxo de caixa, não perder dinheiro.
+
+REGRAS:
+1. NUNCA invente valores. Use SEMPRE as ferramentas.
+2. CITE SEMPRE a fonte.
+3. No máximo 3 parágrafos.
+4. Prioridade: 🔴 CRÍTICO (pagar hoje) > 🟠 URGENTE (5 dias) > 🟡 ATENÇÃO (15 dias) > 🟢 ACOMPANHAR.
+5. Sempre indique a ação: "Pagar até dia X".
+6. NUNCA execute ações. Apenas avise.
+7. Sem dado → "Não encontrei essa informação cadastrada no sistema."`;
+
+  if (contextoOperacional?.resumoExecutivo) {
+    base += `\n\nCONTEXTO OPERACIONAL (snapshot):\n${String(contextoOperacional.resumoExecutivo).slice(0, 3500)}`;
+  }
+
+  return base;
 }
 
 export default class GeminiAssistente extends LLMService {
@@ -40,17 +92,14 @@ export default class GeminiAssistente extends LLMService {
     return this._genAI;
   }
 
-  async conversar({ historico, mensagemAtual, ferramentasDisponiveis = FERRAMENTAS_DISPONIVEIS }) {
-    const systemPrompt = `Você é a assistente do PROPRIETÁRIO da Construtora. Foco: prefeituras, prazos, fluxo de caixa, não perder dinheiro.
-
-REGRAS:
-1. NUNCA invente valores. Use SEMPRE as ferramentas.
-2. CITE SEMPRE a fonte.
-3. No máximo 3 parágrafos.
-4. Prioridade: 🔴 CRÍTICO (pagar hoje) > 🟠 URGENTE (5 dias) > 🟡 ATENÇÃO (15 dias) > 🟢 ACOMPANHAR.
-5. Sempre indique a ação: "Pagar até dia X".
-6. NUNCA execute ações. Apenas avise.
-7. Sem dado → "Não encontrei essa informação cadastrada no sistema."`;
+  async conversar({
+    historico,
+    mensagemAtual,
+    ferramentasDisponiveis = FERRAMENTAS_DISPONIVEIS,
+    empresaId = null,
+    contextoOperacional = null
+  }) {
+    const systemPrompt = montarSystemPrompt(contextoOperacional);
 
     const tools = getTools();
     const genAI = await this.getGenAI();
@@ -85,23 +134,32 @@ REGRAS:
 
             if (ferramentasDisponiveis[nome] && typeof ferramentasDisponiveis[nome].fn === 'function') {
               try {
-                const resultado = await ferramentasDisponiveis[nome].fn(args);
+                const resultado = await ferramentasDisponiveis[nome].fn({
+                  ...args,
+                  empresaId
+                });
                 ferramentasUsadas.push(nome);
                 fontesAcumuladas.push(...extrairFontes(resultado));
 
-                await chat.sendMessage([{
-                  functionResponse: {
-                    name: nome,
-                    response: { data: JSON.stringify(resultado || {}) }
+                await chat.sendMessage([
+                  {
+                    functionResponse: {
+                      name: nome,
+                      response: { data: JSON.stringify(resultado || {}) }
+                    }
                   }
-                }]);
+                ]);
               } catch (err) {
-                await chat.sendMessage([{
-                  functionResponse: {
-                    name: nome,
-                    response: { data: JSON.stringify({ error: `Falha ao chamar ${nome}: ${err.message}` }) }
+                await chat.sendMessage([
+                  {
+                    functionResponse: {
+                      name: nome,
+                      response: {
+                        data: JSON.stringify({ error: `Falha ao chamar ${nome}: ${err.message}` })
+                      }
+                    }
                   }
-                }]);
+                ]);
               }
             }
           }

@@ -9,14 +9,30 @@ import { incluirProgressoObras } from '../../utils/progressoObra.js';
 const fmtMoeda = (v) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
 
-export async function resumoDoDia() {
+/** Normaliza args vindos do LLM (objeto) ou chamada direta. */
+function pickOpts(arg, defaults = {}) {
+  if (arg == null) return { ...defaults };
+  if (typeof arg === 'object' && !Array.isArray(arg)) {
+    return { ...defaults, ...arg };
+  }
+  return { ...defaults };
+}
+
+async function obrasIdsDaEmpresa(empresaId) {
+  if (!empresaId) return null;
+  return Obra.find({ empresa: empresaId }).distinct('_id');
+}
+
+export async function resumoDoDia(arg) {
+  const { empresaId } = pickOpts(arg);
+  const opts = { empresaId };
   const [contasPagar, contasReceber, etapas, obras, certidoes, documentos] = await Promise.all([
-    contasAPagarVencendo(7),
-    contasAReceberAtrasadas(),
-    etapasVencendo(5),
-    obrasAtrasadas(),
-    certidoesVencendo(15),
-    documentosRHVencendo()
+    contasAPagarVencendo({ ...opts, dias: 7 }),
+    contasAReceberAtrasadas(opts),
+    etapasVencendo({ ...opts, dias: 5 }),
+    obrasAtrasadas(opts),
+    certidoesVencendo({ ...opts, dias: 15 }),
+    documentosRHVencendo(opts)
   ]);
 
   return {
@@ -26,21 +42,32 @@ export async function resumoDoDia() {
     obras,
     certidoes,
     documentos,
-    totalAlertas: contasPagar.itens.length + contasReceber.itens.length + etapas.itens.length + obras.itens.length + certidoes.itens.length + documentos.itens.length
+    totalAlertas:
+      contasPagar.itens.length +
+      contasReceber.itens.length +
+      etapas.itens.length +
+      obras.itens.length +
+      certidoes.itens.length +
+      documentos.itens.length
   };
 }
 
-export async function contasAPagarVencendo(dias = 7) {
+export async function contasAPagarVencendo(arg) {
+  const { empresaId, dias = 7 } = pickOpts(arg, { dias: 7 });
+  const nDias = Number(dias) || 7;
   const hoje = new Date();
   const limite = new Date();
-  limite.setUTCDate(limite.getUTCDate() + dias);
+  limite.setUTCDate(limite.getUTCDate() + nDias);
   limite.setUTCHours(23, 59, 59, 999);
 
-  const lancamentos = await Lancamento.find({
+  const filtro = {
     tipo: 'pagar',
     status: { $ne: 'pago' },
     dataVencimento: { $gte: hoje, $lte: limite }
-  })
+  };
+  if (empresaId) filtro.empresa = empresaId;
+
+  const lancamentos = await Lancamento.find(filtro)
     .populate('obra', 'nome codigo')
     .populate('fornecedorVinculado', 'nome')
     .select('descricao valor dataVencimento status categoria obra fornecedor fornecedorVinculado')
@@ -67,14 +94,18 @@ export async function contasAPagarVencendo(dias = 7) {
   };
 }
 
-export async function contasAReceberAtrasadas() {
+export async function contasAReceberAtrasadas(arg) {
+  const { empresaId } = pickOpts(arg);
   const hoje = new Date();
 
-  const lancamentos = await Lancamento.find({
+  const filtro = {
     tipo: 'receber',
     status: { $in: ['pendente', 'atrasado'] },
     dataVencimento: { $lt: hoje }
-  })
+  };
+  if (empresaId) filtro.empresa = empresaId;
+
+  const lancamentos = await Lancamento.find(filtro)
     .populate('obra', 'nome codigo')
     .populate('cliente', 'nome')
     .select('descricao valor dataVencimento status categoria obra cliente')
@@ -99,19 +130,28 @@ export async function contasAReceberAtrasadas() {
   };
 }
 
-export async function etapasVencendo(dias = 15) {
+export async function etapasVencendo(arg) {
+  const { empresaId, dias = 15 } = pickOpts(arg, { dias: 15 });
+  const nDias = Number(dias) || 15;
   const hoje = new Date();
   const limite = new Date();
-  limite.setUTCDate(limite.getUTCDate() + dias);
+  limite.setUTCDate(limite.getUTCDate() + nDias);
   limite.setUTCHours(23, 59, 59, 999);
 
-  const etapas = await Etapa.find({
+  const filtro = {
     status: { $ne: 'concluida' },
     prazoEntrega: { $gte: hoje, $lte: limite }
-  })
+  };
+
+  if (empresaId) {
+    const ids = await obrasIdsDaEmpresa(empresaId);
+    filtro.obra = { $in: ids };
+  }
+
+  const etapas = await Etapa.find(filtro)
     .populate('obra', 'nome codigo')
     .populate('contrato', 'numero')
-    .select('descricao unidade quantidadeTotal quantidadeMedida precoUnitario status')
+    .select('descricao unidade quantidadeTotal quantidadeMedida precoUnitario status prazoEntrega')
     .sort({ prazoEntrega: 1 });
 
   const fontes = etapas.map((e) => ({
@@ -134,13 +174,19 @@ export async function etapasVencendo(dias = 15) {
   };
 }
 
-export async function obrasAtrasadas() {
+export async function obrasAtrasadas(arg) {
+  const { empresaId } = pickOpts(arg);
   const hoje = new Date();
 
-  const obras = await Obra.find({
+  const filtro = {
     status: 'em_andamento',
     dataPrevisaoFim: { $exists: true, $ne: null }
-  }).select('nome codigo status valorOrcamento dataInicio dataPrevisaoFim');
+  };
+  if (empresaId) filtro.empresa = empresaId;
+
+  const obras = await Obra.find(filtro).select(
+    'nome codigo status valorOrcamento dataInicio dataPrevisaoFim'
+  );
 
   const obrasProgresso = await incluirProgressoObras(obras);
 
@@ -174,14 +220,19 @@ export async function obrasAtrasadas() {
   };
 }
 
-export async function certidoesVencendo(dias = 30) {
+export async function certidoesVencendo(arg) {
+  const { empresaId, dias = 30 } = pickOpts(arg, { dias: 30 });
+  const nDias = Number(dias) || 30;
   const hoje = new Date();
   const limite = new Date();
-  limite.setUTCDate(limite.getUTCDate() + dias);
+  limite.setUTCDate(limite.getUTCDate() + nDias);
 
-  const certidoes = await Certidao.find({
+  const filtro = {
     dataVencimento: { $gte: hoje, $lte: limite }
-  }).sort({ dataVencimento: 1 });
+  };
+  if (empresaId) filtro.empresa = empresaId;
+
+  const certidoes = await Certidao.find(filtro).sort({ dataVencimento: 1 });
 
   const fontes = certidoes.map((c) => ({
     tipo: 'certidao',
@@ -201,12 +252,14 @@ export async function certidoesVencendo(dias = 30) {
   };
 }
 
-export async function documentosRHVencendo() {
+export async function documentosRHVencendo(arg) {
+  const { empresaId } = pickOpts(arg);
   const hoje = new Date();
-  const limite = new Date();
-  limite.setUTCDate(limite.getUTCDate() + 30);
 
-  const colaboradores = await Colaborador.find({ status: 'ativo' })
+  const filtro = { status: 'ativo' };
+  if (empresaId) filtro.empresa = empresaId;
+
+  const colaboradores = await Colaborador.find(filtro)
     .select('nome funcao documentos')
     .sort({ nome: 1 });
 
@@ -214,12 +267,13 @@ export async function documentosRHVencendo() {
   const fontes = [];
 
   for (const col of colaboradores) {
-    for (const doc of (col.documentos || [])) {
+    for (const doc of col.documentos || []) {
       if (!doc.validade) continue;
       const validade = new Date(doc.validade);
       const diff = Math.ceil((validade - hoje) / 86400000);
       if (diff <= 30) {
-        const status = doc.status || (diff < 0 ? 'vencido' : diff <= 7 ? 'vence_em_breve' : 'atencao');
+        const status =
+          doc.status || (diff < 0 ? 'vencido' : diff <= 7 ? 'vence_em_breve' : 'atencao');
         itens.push({
           _id: col._id,
           colaborador: col.nome,
@@ -244,8 +298,16 @@ export async function documentosRHVencendo() {
   return { fontes, itens };
 }
 
-export async function medicoesPendentes() {
-  const etapas = await Etapa.find({ status: { $in: ['nao_iniciada', 'em_andamento'] } })
+export async function medicoesPendentes(arg) {
+  const { empresaId } = pickOpts(arg);
+
+  const filtro = { status: { $in: ['nao_iniciada', 'em_andamento'] } };
+  if (empresaId) {
+    const ids = await obrasIdsDaEmpresa(empresaId);
+    filtro.obra = { $in: ids };
+  }
+
+  const etapas = await Etapa.find(filtro)
     .populate('obra', 'nome codigo')
     .select('descricao quantidadeTotal quantidadeMedida unidade')
     .sort({ createdAt: 1 });
@@ -266,7 +328,10 @@ export async function medicoesPendentes() {
       total: e.quantidadeTotal,
       medido: e.quantidadeMedida,
       faltando: Number(e.quantidadeTotal) - Number(e.quantidadeMedida),
-      percentual: Number(e.quantidadeTotal) > 0 ? Math.round((e.quantidadeMedida / e.quantidadeTotal) * 100) : 0
+      percentual:
+        Number(e.quantidadeTotal) > 0
+          ? Math.round((e.quantidadeMedida / e.quantidadeTotal) * 100)
+          : 0
     }))
   };
 }
