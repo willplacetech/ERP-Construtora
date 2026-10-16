@@ -96,60 +96,89 @@ function BubbleUsuario({ mensagem }) {
   );
 }
 
-function CardComprovante({ dados, obras, isDemo, onConfirmar, confidence, lowConfidence, exigeRevisao }) {
-  const [obraId, setObraId] = useState('');
-  const [valorEditado, setValorEditado] = useState(dados?.valor || 0);
-
+/** Card genérico PIX / boleto / NF / comprovante com match e confirmação humana */
+function CardDocumentoFinanceiro({
+  dados,
+  modo,
+  candidatos = [],
+  obras = [],
+  isDemo,
+  confidence,
+  lowConfidence,
+  exigeRevisao,
+  resposta,
+  interacaoId,
+  confirmacaoId,
+  onConfirmarPrevias,
+  confirmando
+}) {
   if (!dados) return null;
-
-  const handleConfirmar = () => {
-    if (!obraId) return;
-    onConfirmar(obraId, { ...dados, valor: Number(valorEditado) || 0 });
-  };
+  const tipoLabel = {
+    pix: 'PIX',
+    boleto: 'Boleto',
+    nota_fiscal: 'Nota fiscal',
+    comprovante_abastecimento: 'Abastecimento',
+    comprovante_despesa: 'Comprovante',
+    cheque: 'Cheque',
+    generico: 'Documento'
+  }[dados.tipo] || dados.tipo || 'Documento';
 
   return (
     <div style={{
-      maxWidth: '85%',
+      maxWidth: '90%',
       background: 'var(--fundo-card)',
       border: (lowConfidence || exigeRevisao) ? '2px solid #fbbf24' : '2px solid #35d18a',
-      borderTopLeftRadius: 4,
-      borderTopRightRadius: 16,
-      borderBottomRightRadius: 16,
-      borderBottomLeftRadius: 16,
+      borderRadius: '4px 16px 16px 16px',
       padding: 14,
       lineHeight: 1.5
     }}>
       {isDemo && <MarcaDemo />}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: '#35d18a' }}>📸 Comprovante de Abastecimento</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#35d18a' }}>📎 {tipoLabel}</div>
         <ConfidenceBadge confidence={confidence} lowConfidence={lowConfidence} exigeRevisao={exigeRevisao} />
+        {modo && (
+          <span style={{ fontSize: 11, color: '#91a4b2' }}>
+            {modo === 'baixar' || modo === 'baixar_sugerido' ? '→ Baixa sugerida' : '→ Novo lançamento'}
+          </span>
+        )}
       </div>
       {(lowConfidence || exigeRevisao) && (
         <div style={{ marginBottom: 10, padding: '8px 10px', background: 'rgba(245, 185, 66, .12)', border: '1px solid var(--aviso)', borderRadius: 8, fontSize: 12, color: '#fbbf24' }}>
-          ⚠️ Baixa confiança na leitura da IA. Revise valor, data e posto antes de confirmar.
+          ⚠️ Baixa confiança na leitura. Revise antes de confirmar.
         </div>
       )}
       <div style={{ fontSize: 12, color: '#e2e8f0', marginBottom: 8, whiteSpace: 'pre-wrap' }}>
-        {'- Posto: ' + (dados.nomePosto || 'Nao identificado')}\n
-        {'- Data: ' + (dados.data ? new Date(dados.data).toLocaleDateString('pt-BR') : (dados.dataNota ? new Date(dados.dataNota).toLocaleDateString('pt-BR') : '-'))}\n
-        {'- Valor: R$ ' + (Number(valorEditado) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-        {dados.litros ? '\n- Litros: ' + dados.litros + 'L' : ''}
-        {dados.placa ? '\n- Placa: ' + dados.placa : ''}
+        {resposta ||
+          `- Valor: ${fmtMoeda(dados.valor)}\n- Fornecedor: ${dados.fornecedor || '-'}\n- Forma: ${dados.formaPagamento || '-'}\n- Data: ${dados.data ? new Date(dados.data).toLocaleDateString('pt-BR') : '-'}`}
       </div>
-      <div style={{ marginBottom: 10 }}>
-        <label style={{ fontSize: 11, color: '#91a4b2', display: 'block', marginBottom: 4 }}>Obra</label>
-        <select value={obraId} onChange={(e) => setObraId(e.target.value)} style={{ width: '100%', background: 'var(--fundo-input)', border: '1px solid var(--borda)', borderRadius: 6, padding: '6px 8px', color: 'var(--texto)', fontSize: 12 }}>
-          <option value="">Selecione a obra...</option>
-          {(obras || []).map((o) => (
-            <option key={String(o._id)} value={o._id}>{o.nome}{o.codigo ? ` (${o.codigo})` : ''}</option>
-          ))}
-        </select>
-      </div>
+      {candidatos.length > 0 && (
+        <div style={{ marginBottom: 10, fontSize: 12 }}>
+          <strong>Candidatos encontrados:</strong>
+          <ul style={{ margin: '6px 0', paddingLeft: 18 }}>
+            {candidatos.map((c) => (
+              <li key={String(c._id)}>
+                {c.descricao} — {fmtMoeda(c.valor)} (score {c.score})
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <button type="button" onClick={handleConfirmar} disabled={!obraId} style={{ padding: '8px 16px', background: obraId ? 'var(--primaria)' : 'var(--borda)', color: obraId ? '#0c171c' : '#64748b', border: 'none', borderRadius: 6, cursor: obraId ? 'pointer' : 'default', fontWeight: 600, fontSize: 12 }}>
-          Confirmar lancamento
+        <button
+          type="button"
+          className="btn btn-primario btn-mini"
+          disabled={!interacaoId || !confirmacaoId || confirmando}
+          onClick={() => onConfirmarPrevias(interacaoId, confirmacaoId)}
+          style={{ fontWeight: 600 }}
+        >
+          {confirmando ? 'Executando…' : 'Confirmar e gravar'}
         </button>
       </div>
+      {(!interacaoId || !confirmacaoId) && (
+        <div style={{ marginTop: 8, fontSize: 11, color: '#91a4b2' }}>
+          Use a aba Lançamentos se a confirmação não aparecer aqui.
+        </div>
+      )}
     </div>
   );
 }
@@ -169,7 +198,7 @@ export default function Assistente() {
   const [apiKey, setApiKey] = useState('');
   const [apiKeyValid, setApiKeyValid] = useState(false);
   const [checking, setChecking] = useState(false);
-  const [fotoWidget, setFotoWidget] = useState(false);
+  const [confirmando, setConfirmando] = useState(null);
   const fimRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -187,7 +216,7 @@ export default function Assistente() {
 
   useEffect(() => {
     fimRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chat, carregando, fotoWidget]);
+  }, [chat, carregando]);
 
   const montarPayload = (msg) => {
     const p = { mensagem: msg };
@@ -261,68 +290,73 @@ export default function Assistente() {
   };
 
   const handleFotoSelecionada = async (base64) => {
-    setChat((prev) => [...prev, { tipo: 'assistant', texto: 'Analisando comprovante... aguarde', fontes: [], acaoSugerida: '' }]);
+    setChat((prev) => [...prev, { tipo: 'assistant', texto: 'Analisando documento (PIX/boleto/NF)…', fontes: [], acaoSugerida: '' }]);
+    setCarregando(true);
     try {
-      const { data } = await api.post('/assistente/analisar-imagem', { imagemBase64: base64 });
-      if (data.tipo === 'comprovante_abastecimento') {
-        setChat((prev) => [...prev.slice(0, -1), {
-          tipo: 'comprovante',
-          texto: 'Comprovante detectado',
-          fotoData: {
-            ...(data.dados || {}),
-            nomePosto: data.dados?.nomePosto || 'Nao identificado',
-            valor: data.dados?.valor || 0
-          },
-          obras: data.obras || [],
-          isDemo: data.isDemo,
-          confidence: data.confidence,
-          lowConfidence: !!data.lowConfidence,
-          exigeRevisao: !!data.exigeRevisao,
-          acaoSugerida: data.mensagem || ''
-        }]);
-      } else {
-        setChat((prev) => [...prev.slice(0, -1), {
-          tipo: 'assistant',
-          texto: data.resumo || data.mensagem || 'Nao foi possivel classificar a imagem.',
-          fontes: [],
-          acaoSugerida: ''
-        }]);
+      // Prefer pipeline completo com prévias salvas
+      let data;
+      try {
+        const resp = await api.post('/assistente/documento/processar', { imagemBase64: base64 });
+        data = resp.data;
+      } catch {
+        const resp = await api.post('/assistente/analisar-imagem', { imagemBase64: base64 });
+        data = resp.data;
       }
+
+      setChat((prev) => [...prev.slice(0, -1), {
+        tipo: 'documento',
+        texto: data.resposta || 'Documento processado',
+        fotoData: data.dados || data.normalizado || {},
+        obras: data.obras || [],
+        candidatos: data.candidatos || [],
+        modo: data.modo,
+        isDemo: data.isDemo,
+        confidence: data.confidence,
+        lowConfidence: !!data.lowConfidence,
+        exigeRevisao: !!data.exigeRevisao,
+        interacaoId: data.interacaoId,
+        confirmacaoId: data.confirmacaoId,
+        resposta: data.resposta
+      }]);
     } catch (err) {
       setChat((prev) => [...prev.slice(0, -1), {
         tipo: 'assistant',
-        texto: err.response?.data?.erro || err.response?.data?.error || 'Erro ao processar imagem.',
+        texto: err.response?.data?.error || err.response?.data?.erro || 'Erro ao processar imagem.',
         fontes: [],
         acaoSugerida: ''
       }]);
+    } finally {
+      setCarregando(false);
     }
-    setFotoWidget(false);
   };
 
-  const handleConfirmarDespesa = async (obraId, dados) => {
+  const confirmarPrevias = async (interacaoId, confirmacaoId) => {
+    if (!interacaoId || !confirmacaoId) return;
+    setConfirmando(confirmacaoId);
     try {
-      const { data } = await api.post('/despesas', {
-        obraId,
-        categoria: 'Combustivel',
-        valor: dados.valor,
-        dataVencimento: dados.dataNota || dados.data || new Date(),
-        fornecedor: dados.nomePosto,
-        placa: dados.placa,
-        litros: dados.litros
+      const { data } = await api.post('/assistente/whatsapp/executar-previas', {
+        interacaoIAId: interacaoId,
+        confirmacaoId
       });
+      const resultados = data.resultados || [];
+      const ok = resultados.every((r) => r.ok || r.sucesso);
       setChat((prev) => [...prev, {
         tipo: 'assistant',
-        texto: `Despesa lancada com sucesso!\n- Valor: ${fmtMoeda(data.valor || dados.valor)}\n- Obra: ${data.obraNome || obraId}`,
+        texto: ok
+          ? `✅ Prévia executada.\n${resultados.map((r) => `• ${r.acao} ${r.modelo || ''} ${r.id ? String(r.id).slice(-6) : ''}`).join('\n')}`
+          : `⚠️ Execução com pendências.\n${JSON.stringify(resultados, null, 2)}`,
         fontes: [],
         acaoSugerida: ''
       }]);
     } catch (err) {
       setChat((prev) => [...prev, {
         tipo: 'assistant',
-        texto: err.response?.data?.error || 'Falha ao lancar despesa.',
+        texto: err.response?.data?.error || 'Falha ao confirmar prévias.',
         fontes: [],
         acaoSugerida: ''
       }]);
+    } finally {
+      setConfirmando(null);
     }
   };
 
@@ -335,6 +369,7 @@ export default function Assistente() {
       if (b64) handleFotoSelecionada(b64);
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
   const criticos = chat.filter((m) => String(m.texto || '').includes('🔴')).length;
@@ -345,7 +380,7 @@ export default function Assistente() {
         <div>
           <h2 style={{ margin: 0 }}>Consultas e alertas</h2>
           <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
-            Monitoramento autônomo de prazos, contas e obras
+            Briefing, consultas e baixa assistida (PIX / boleto / NF)
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -382,7 +417,7 @@ export default function Assistente() {
         {PERGUNTAS_RAPIDAS.map((p) => (
           <button key={p} type="button" className="btn btn-linha btn-mini" disabled={carregando} onClick={() => enviarMensagem(p)} style={{ fontSize: 12 }}>{p}</button>
         ))}
-        <button type="button" className="btn btn-linha btn-mini" onClick={() => fileInputRef.current?.click()} style={{ fontSize: 12 }}>📷 Comprovante</button>
+        <button type="button" className="btn btn-linha btn-mini" onClick={() => fileInputRef.current?.click()} style={{ fontSize: 12 }}>📷 PIX / boleto / NF</button>
         <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onFile} />
       </div>
 
@@ -393,20 +428,26 @@ export default function Assistente() {
             {msg.tipo === 'assistant' && (
               <BubbleAssistente mensagem={msg.texto} fontes={msg.fontes} acaoSugerida={msg.acaoSugerida} demo={msg.demo ?? demo} />
             )}
-            {msg.tipo === 'comprovante' && (
-              <CardComprovante
+            {msg.tipo === 'documento' && (
+              <CardDocumentoFinanceiro
                 dados={msg.fotoData}
+                modo={msg.modo}
+                candidatos={msg.candidatos}
                 obras={msg.obras}
                 isDemo={msg.isDemo}
                 confidence={msg.confidence}
                 lowConfidence={msg.lowConfidence}
                 exigeRevisao={msg.exigeRevisao}
-                onConfirmar={handleConfirmarDespesa}
+                resposta={msg.resposta}
+                interacaoId={msg.interacaoId}
+                confirmacaoId={msg.confirmacaoId}
+                onConfirmarPrevias={confirmarPrevias}
+                confirmando={confirmando === msg.confirmacaoId}
               />
             )}
           </div>
         ))}
-        {carregando && <div style={{ fontSize: 13, color: '#91a4b2' }}>Pensando…</div>}
+        {carregando && <div style={{ fontSize: 13, color: '#91a4b2' }}>Processando…</div>}
         {erro && <div style={{ color: '#fbbf24', fontSize: 13 }}>{erro}</div>}
         <div ref={fimRef} />
       </div>
@@ -417,7 +458,7 @@ export default function Assistente() {
           onChange={(e) => setMensagem(e.target.value)}
           onKeyDown={handleKeyDown}
           rows={2}
-          placeholder="Pergunte sobre contas, obras, RH…"
+          placeholder="Pergunte sobre contas, obras… ou envie um documento"
           style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid var(--borda)', background: 'var(--fundo-input)', color: 'var(--texto)', resize: 'vertical' }}
           disabled={carregando}
         />
