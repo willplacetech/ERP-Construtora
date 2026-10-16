@@ -16,6 +16,7 @@ import crypto from 'crypto';
 import { sendWhatsAppMessageWithRetry } from '../services/whatsappService.js';
 import { getLlmRouter } from '../services/llm/index.js';
 import { registerEngenhariaRoutes } from './assistenteEngenharia.js';
+import { registerJuridicoRoutes } from './assistenteJuridico.js';
 
 const router = express.Router();
 
@@ -403,7 +404,7 @@ router.post('/validar-chave', async (req, res, next) => {
     if (provider === 'openai') {
       const chave = apiKey.trim();
       if (!chave.startsWith('sk-')) erro = 'Chave da OpenAI deve começar com "sk-"';
-      else if (chave.length < 20) erro = 'Chave da OpenAI invalida (muito curta)';
+      else if (chave.length < 20) erro = 'Chave do OpenAI invalida (muito curta)';
       else valido = true;
     } else if (provider === 'gemini') {
       const chave = apiKey.trim();
@@ -495,7 +496,9 @@ router.get('/historico', async (req, res, next) => {
   }
 });
 
-// Sprint C — RDO / medição / status físico-financeiro
+// Sprint C — RDO / medição
 registerEngenhariaRoutes(router);
+// Sprint D — certidões / alertas jurídicos
+registerJuridicoRoutes(router);
 
 export default router;
