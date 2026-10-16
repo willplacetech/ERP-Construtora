@@ -30,8 +30,20 @@ function extrairIntencaoKeyword(mensagem) {
     }
     return 'licitacao';
   }
-  if (msg.includes('certidão') || msg.includes('certidao') || msg.includes('cnd') || msg.includes('cndt')) {
-    if (msg.includes('vence') || msg.includes('vencid') || msg.includes('lista') || msg === 'certidões' || msg === 'certidoes') return 'certidoes_vencendo';
+  // "certid" cobre certidão / certidões / certidao / certidoes (acentos)
+  if (msg.includes('certid') || msg.includes('cnd') || msg.includes('cndt')) {
+    if (
+      msg.includes('vence') ||
+      msg.includes('vencid') ||
+      msg.includes('lista') ||
+      msg.trim() === 'certidões' ||
+      msg.trim() === 'certidoes' ||
+      msg.trim() === 'certidão' ||
+      msg.trim() === 'certidao' ||
+      /^certid/.test(msg.trim())
+    ) {
+      return 'certidoes_vencendo';
+    }
     return 'certidao';
   }
   if (msg.includes('rdo') || msg.includes('diário') || msg.includes('diario')) return 'rdo';
@@ -79,7 +91,10 @@ export async function processarMensagemIA({
   const msgLower = String(mensagem || '').toLowerCase();
   const pareceRdo = intencao === 'rdo' || msgLower.includes('rdo') || msgLower.includes('diário') || msgLower.includes('diario');
   const pareceCertidao =
-    intencao === 'certidao' || msgLower.includes('certidão') || msgLower.includes('certidao') || msgLower.includes('cnd');
+    intencao === 'certidao' ||
+    intencao === 'certidoes_vencendo' ||
+    msgLower.includes('certid') ||
+    msgLower.includes('cnd');
 
   if (anexo?.url || anexo?.base64 || anexo?.imagemBase64) {
     const imagem = anexo.url || anexo.base64 || anexo.imagemBase64;
@@ -262,7 +277,7 @@ export async function executarPreviasConfirmadas(empresaId, previas, usuarioId) 
           { new: true }
         );
         if (!updated) resultados.push({ ok: false, erro: 'Lançamento não encontrado', acao: 'baixar' });
-        else resultados.push({ ok: true, sucesso: true, modelo: 'Lancamento', id: updated._id, acao: 'baixar' });
+      else resultados.push({ ok: true, sucesso: true, modelo: 'Lancamento', id: updated._id, acao: 'baixar' });
       } else if (previa.modelo === 'Lancamento' && previa.acao === 'criar') {
         const created = await Lancamento.create({ ...previa.dados, empresa: empresaId });
         resultados.push({ ok: true, sucesso: true, modelo: 'Lancamento', id: created._id, acao: 'criar' });
