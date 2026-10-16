@@ -1,5 +1,4 @@
 import { ContextService } from './ContextService.js';
-import LlmService from './assistente/LlmService.js';
 
 export class BriefingService {
   /**
@@ -10,21 +9,17 @@ export class BriefingService {
    */
   static async generateDailyBriefing(empresaId, usuarioId) {
     try {
-      // Obter contexto operacional completo
       const contexto = await ContextService.getOperationalContext(empresaId, usuarioId);
-      
-      // Gerar briefing em texto usando o LLM (mas deixamos a integração para testes finais)
-      // Por enquanto, retornamos o resumo executivo direto do contexto
+
       const briefingTexto = contexto.resumoExecutivo || 'Não foi possível gerar o briefing.';
-      
-      // Estruturar o briefing para fácil consumo
+
       return {
         sucesso: true,
         timestamp: new Date().toISOString(),
         empresa: empresaId.toString(),
         titulo: 'Briefing Diário - Operação Enxuta',
         texto: briefingTexto,
-        dadosBrutos: contexto, // Para uso futuro com LLM
+        dadosBrutos: contexto,
         sections: this.extractSections(contexto)
       };
     } catch (error) {
@@ -37,12 +32,9 @@ export class BriefingService {
     }
   }
 
-  /**
-   * Extrai seções estruturadas do contexto para apresentação em cards
-   */
   static extractSections(contexto) {
     const sections = [];
-    
+
     if (contexto.financeiro && !contexto.financeiro.erro) {
       sections.push({
         id: 'financeiro',
@@ -52,13 +44,13 @@ export class BriefingService {
           vencendo: contexto.financeiro.totalVencendo || 0,
           vencidas: contexto.financeiro.totalVencidas || 0,
           detalhes: {
-            vencendo: contexto.financeiro.contasVencendo.slice(0, 3),
-            vencidas: contexto.financeiro.contasVencidas.slice(0, 3)
+            vencendo: (contexto.financeiro.contasVencendo || []).slice(0, 3),
+            vencidas: (contexto.financeiro.contasVencidas || []).slice(0, 3)
           }
         }
       });
     }
-    
+
     if (contexto.obras && !contexto.obras.erro) {
       sections.push({
         id: 'obras',
@@ -66,14 +58,14 @@ export class BriefingService {
         icone: '🏗️',
         dados: {
           emAndamento: contexto.obras.totalObrasEmAndamento || 0,
-          comAtrasos: contexto.obras.obrasComEtapasAtrasadas.length || 0,
+          comAtrasos: (contexto.obras.obrasComEtapasAtrasadas || []).length || 0,
           detalhes: {
-            atrasadas: contexto.obras.obrasComEtapasAtrasadas.slice(0, 3)
+            atrasadas: (contexto.obras.obrasComEtapasAtrasadas || []).slice(0, 3)
           }
         }
       });
     }
-    
+
     if (contexto.rh && !contexto.rh.erro) {
       sections.push({
         id: 'rh',
@@ -82,11 +74,11 @@ export class BriefingService {
         dados: {
           feriasVencidas: contexto.rh.totalFeriasVencidas || 0,
           treinamentosPendentes: contexto.rh.totalTreinamentosPendentes || 0,
-          admissoes: contexto.rh.admissoesRecent.length || 0
+          admissoes: (contexto.rh.admissoesRecent || []).length || 0
         }
       });
     }
-    
+
     if (contexto.juridico && !contexto.juridico.erro) {
       sections.push({
         id: 'juridico',
@@ -98,7 +90,7 @@ export class BriefingService {
         }
       });
     }
-    
+
     if (contexto.licitacoes && !contexto.licitacoes.erro) {
       sections.push({
         id: 'licitacoes',
@@ -110,18 +102,15 @@ export class BriefingService {
         }
       });
     }
-    
+
     return sections;
   }
 
-  /**
-   * Gera briefing específico por módulo (para consultas direcionadas)
-   */
   static async generateModuleBriefing(empresaId, modulo) {
     try {
       let dados;
-      
-      switch (modulo.toLowerCase()) {
+
+      switch (String(modulo || '').toLowerCase()) {
         case 'financeiro':
           dados = await ContextService.getFinanceiroContext(empresaId);
           break;
@@ -129,7 +118,6 @@ export class BriefingService {
           dados = await ContextService.getObrasContext(empresaId);
           break;
         case 'rh':
-          // Precisaríamos do usuarioId aqui, mas para briefing genérico podemos usar null ou buscar um admin
           dados = await ContextService.getRHContext(empresaId, null);
           break;
         case 'juridico':
@@ -141,7 +129,7 @@ export class BriefingService {
         default:
           throw new Error(`Módulo não suportado: ${modulo}`);
       }
-      
+
       return {
         sucesso: true,
         modulo,
@@ -158,3 +146,5 @@ export class BriefingService {
     }
   }
 }
+
+export default BriefingService;
