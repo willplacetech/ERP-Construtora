@@ -8,11 +8,15 @@ const feriasSchema = new mongoose.Schema({
   inicio: { type: Date, required: true },
   fim: { type: Date, required: true },
   dias: { type: Number, required: true, min: 1 },
-  status: { type: String, enum: ['programada', 'em_andamento', 'concluida', 'cancelada', 'interrompida'], default: 'programada' },
+  status: {
+    type: String,
+    enum: ['programada', 'em_andamento', 'concluida', 'cancelada', 'interrompida'],
+    default: 'programada'
+  },
   arquivoComunicacao: { type: String },
   arquivoRecibo: { type: String },
   observacao: { type: String, trim: true, maxlength: 1000 },
-  criadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true }
+  criadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
 feriasSchema.index({ empresa: 1, colaborador: 1, inicio: 1 });
