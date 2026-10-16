@@ -11,10 +11,11 @@ import mongoose from 'mongoose';
 import ContextService from '../services/ContextService.js';
 import BriefingService from '../services/BriefingService.js';
 import { processarMensagemIA, executarPreviasConfirmadas } from '../services/assistente/whatsappProcessor.js';
-import { processarDocumentoFinanceiro, montarPreviaBaixa, montarPreviaCriacao, normalizarDocumento } from '../services/assistente/fluxoFinanceiro.js';
+import { processarDocumentoFinanceiro } from '../services/assistente/fluxoFinanceiro.js';
 import crypto from 'crypto';
 import { sendWhatsAppMessageWithRetry } from '../services/whatsappService.js';
 import { getLlmRouter } from '../services/llm/index.js';
+import { registerEngenhariaRoutes } from './assistenteEngenharia.js';
 
 const router = express.Router();
 
@@ -290,7 +291,6 @@ router.post('/whatsapp/executar-previas', async (req, res, next) => {
   }
 });
 
-/** OCR + matching + prévias (Sprint A) — não grava até confirmar */
 router.post('/documento/processar', async (req, res, next) => {
   try {
     const { imagemBase64, tipoForcado, mensagem } = req.body || {};
@@ -342,7 +342,6 @@ router.post('/analisar-imagem', async (req, res, next) => {
       return res.status(400).json({ error: 'Imagem muito grande (max 10MB)' });
     }
 
-    // Prefer full financial pipeline (match + previas)
     const fluxo = await processarDocumentoFinanceiro({
       empresaId: req.user.empresa,
       imagemBase64,
@@ -495,5 +494,8 @@ router.get('/historico', async (req, res, next) => {
     return next(err);
   }
 });
+
+// Sprint C — RDO / medição / status físico-financeiro
+registerEngenhariaRoutes(router);
 
 export default router;
