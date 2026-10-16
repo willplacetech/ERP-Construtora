@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import api, { fmtMoeda } from '../../api.js';
+import BriefingPanel from '../../components/BriefingPanel.jsx';
+import ConfidenceBadge from '../../components/ConfidenceBadge.jsx';
 
 const PERGUNTAS_RAPIDAS = [
   'Quais contas vencem essa semana?',
@@ -28,7 +30,7 @@ function MarcaDemo() {
 }
 
 function BubbleAssistente({ mensagem, fontes, acaoSugerida, demo }) {
-  const linhas = mensagem.split('\n');
+  const linhas = String(mensagem || '').split('\n');
   return (
     <div style={{
       maxWidth: '80%',
@@ -57,16 +59,7 @@ function BubbleAssistente({ mensagem, fontes, acaoSugerida, demo }) {
         else if (ehVerde) bgExtra = 'rgba(53, 209, 138, .05)';
         else if (ehResumo) bgExtra = 'rgba(33, 199, 168, .05)';
         return (
-          <div
-            key={i}
-            style={{
-              margin: '-4px 0',
-              padding: bgExtra ? '6px 10px' : '2px 0',
-              borderRadius: 4,
-              background: bgExtra,
-              fontWeight: (ehCritico || ehUrgente) ? 500 : 400
-            }}
-          >
+          <div key={i} style={{ margin: '-4px 0', padding: bgExtra ? '6px 10px' : '2px 0', borderRadius: 4, background: bgExtra, fontWeight: (ehCritico || ehUrgente) ? 500 : 400 }}>
             {linha || <br />}
           </div>
         );
@@ -74,17 +67,11 @@ function BubbleAssistente({ mensagem, fontes, acaoSugerida, demo }) {
       {fontes && fontes.length > 0 && (
         <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 8px' }}>
           {fontes.slice(0, 8).map((f, i) => (
-            <span key={i} style={{ fontSize: 11, color: '#91a4b2' }}>
-              📄 {f.nome}
-            </span>
+            <span key={i} style={{ fontSize: 11, color: '#91a4b2' }}>📄 {f.nome}</span>
           ))}
         </div>
       )}
-      {acaoSugerida && (
-        <div style={{ marginTop: 6, fontSize: 12, color: '#fbbf24' }}>
-          💡 {acaoSugerida}
-        </div>
-      )}
+      {acaoSugerida && <div style={{ marginTop: 6, fontSize: 12, color: '#fbbf24' }}>💡 {acaoSugerida}</div>}
     </div>
   );
 }
@@ -109,150 +96,14 @@ function BubbleUsuario({ mensagem }) {
   );
 }
 
-function FotoWidget({ onFotoSelecionada, obrasSugeridas, onObraSelecionada, onTextoObra, onCancelar, loading }) {
-  const [previewBase64, setPreviewBase64] = useState(null);
-  const [etapa, setEtapa] = useState('enviando');
-  const [dadosExtraidos, setDadosExtraidos] = useState(null);
-  const [textoObra, setTextoObra] = useState('');
-  const fileInputRef = useRef(null);
-  const videoRef = useRef(null);
-  const canvasRef = useRef(null);
-  const [modoCamera, setModoCamera] = useState(false);
-
-  useEffect(() => {
-    if (modoCamera && videoRef.current) {
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-        .then((stream) => { videoRef.current.srcObject = stream; })
-        .catch(() => setModoCamera(false));
-    }
-    return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        videoRef.current.srcObject.getTracks().forEach((t) => t.stop());
-      }
-    };
-  }, [modoCamera]);
-
-  const toBase64 = (file) => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-
-  const processarArquivo = async (file) => {
-    const base64 = await toBase64(file);
-    setPreviewBase64(base64);
-    setEtapa('enviando');
-    setDadosExtraidos(null);
-    onFotoSelecionada(base64);
-  };
-
-  const capturarFoto = () => {
-    const canvas = canvasRef.current;
-    if (canvas && videoRef.current) {
-      canvas.width = videoRef.current.videoWidth;
-      canvas.height = videoRef.current.videoHeight;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(videoRef.current, 0, 0);
-      canvas.toBlob(async (blob) => {
-        const base64 = await toBase64(blob);
-        setPreviewBase64(base64);
-        setEtapa('enviando');
-        onFotoSelecionada(base64);
-      }, 'image/jpeg', 0.8);
-      setModoCamera(false);
-    }
-  };
-
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) processarArquivo(file);
-  };
-
-  if (modoCamera) {
-    return (
-      <div style={{ marginTop: 12 }}>
-        <video ref={videoRef} style={{ width: '100%', borderRadius: 8, background: '#000' }} playsInline autoPlay />
-        <canvas ref={canvasRef} style={{ display: 'none' }} />
-        <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'right' }}>
-          <button type="button" className="btn btn-linha btn-mini" onClick={() => setModoCamera(false)}>Cancelar</button>
-          <button type="button" onClick={capturarFoto} style={{ padding: '6px 14px', background: 'var(--primaria)', color: '#0c171c', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 12 }}>Capturar</button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ marginTop: 12, padding: 12, background: 'var(--fundo-card)', border: '1px solid var(--borda)', borderRadius: 8 }}>
-      {!previewBase64 ? (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" onClick={() => setModoCamera(true)} style={{ flex: 1, padding: '10px', background: 'var(--primaria-escuro)', border: '1px solid var(--borda)', borderRadius: 8, color: 'var(--texto)', cursor: 'pointer' }}>
-            📷 Câmera
-          </button>
-          <button type="button" onClick={() => fileInputRef.current?.click()} style={{ flex: 1, padding: '10px', background: 'var(--primaria-escuro)', border: '1px solid var(--borda)', borderRadius: 8, color: 'var(--texto)', cursor: 'pointer' }}>
-            📁 Galeria
-          </button>
-          <input type="file" ref={fileInputRef} accept="image/*" capture="environment" onChange={handleFileChange} style={{ display: 'none' }} />
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <img src={`data:image/jpeg;base64,${previewBase64}`} alt="Nota" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
-          <div style={{ flex: 1, fontSize: 12, color: '#91a4b2' }}>
-            {etapa === 'enviando' && <div>📤 Enviando para IA... aguarde</div>}
-            {etapa === 'confirmar' && dadosExtraidos && (
-              <div>
-                <div>✅ Recebido! Posto: {dadosExtraidos.nomePosto || '—'}</div>
-                <div>Data: {dadosExtraidos.dataNota || '—'}</div>
-                <div>Valor: {fmtMoeda(dadosExtraidos.valor || 0)}</div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {etapa === 'confirmar' && obrasSugeridas.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: '#91a4b2', marginBottom: 4 }}>🏗️ Qual obra?</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {obrasSugeridas.map((o) => (
-              <button key={String(o._id)} type="button" onClick={() => onObraSelecionada(o)} className="btn btn-linha btn-mini" style={{ textAlign: 'left', fontSize: 11 }}>
-                {o.nome} ({o.codigo || ''})
-              </button>
-            ))}
-            <input
-              type="text"
-              value={textoObra}
-              onChange={(e) => { setTextoObra(e.target.value); onTextoObra(e.target.value); }}
-              placeholder="Ou diga o nome da obra..."
-              style={{ marginTop: 4, padding: '6px 8px', background: 'var(--fundo-input)', border: '1px solid var(--borda)', borderRadius: 6, color: 'var(--texto)', fontSize: 11 }}
-            />
-          </div>
-        </div>
-      )}
-      <div style={{ marginTop: 8, display: 'flex', justifyContent: 'right', gap: 6 }}>
-        <button type="button" onClick={onCancelar} className="btn btn-linha btn-mini" style={{ fontSize: 11 }}>Cancelar</button>
-      </div>
-    </div>
-  );
-}
-
-function CardComprovante({ dados, obras, isDemo, onConfirmar }) {
+function CardComprovante({ dados, obras, isDemo, onConfirmar, confidence, lowConfidence, exigeRevisao }) {
   const [obraId, setObraId] = useState('');
-  const [editandoValor, setEditandoValor] = useState(false);
   const [valorEditado, setValorEditado] = useState(dados?.valor || 0);
 
   if (!dados) return null;
 
   const handleConfirmar = () => {
-    if (!obraId) {
-      setChat((prev) => [...prev, {
-        tipo: 'assistant',
-        texto: 'Selecione uma obra antes de confirmar.',
-        fontes: [],
-        acaoSugerida: ''
-      }]);
-      return;
-    }
+    if (!obraId) return;
     onConfirmar(obraId, { ...dados, valor: Number(valorEditado) || 0 });
   };
 
@@ -260,7 +111,7 @@ function CardComprovante({ dados, obras, isDemo, onConfirmar }) {
     <div style={{
       maxWidth: '85%',
       background: 'var(--fundo-card)',
-      border: '2px solid #35d18a',
+      border: (lowConfidence || exigeRevisao) ? '2px solid #fbbf24' : '2px solid #35d18a',
       borderTopLeftRadius: 4,
       borderTopRightRadius: 16,
       borderBottomRightRadius: 16,
@@ -269,64 +120,42 @@ function CardComprovante({ dados, obras, isDemo, onConfirmar }) {
       lineHeight: 1.5
     }}>
       {isDemo && <MarcaDemo />}
-      <div style={{ fontSize: 13, fontWeight: 600, color: '#35d18a', marginBottom: 8 }}>
-        📸 Comprovante de Abastecimento
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: '#35d18a' }}>📸 Comprovante de Abastecimento</div>
+        <ConfidenceBadge confidence={confidence} lowConfidence={lowConfidence} exigeRevisao={exigeRevisao} />
       </div>
-
+      {(lowConfidence || exigeRevisao) && (
+        <div style={{ marginBottom: 10, padding: '8px 10px', background: 'rgba(245, 185, 66, .12)', border: '1px solid var(--aviso)', borderRadius: 8, fontSize: 12, color: '#fbbf24' }}>
+          ⚠️ Baixa confiança na leitura da IA. Revise valor, data e posto antes de confirmar.
+        </div>
+      )}
       <div style={{ fontSize: 12, color: '#e2e8f0', marginBottom: 8, whiteSpace: 'pre-wrap' }}>
-        {'- Posto: ' + (dados.nomePosto || 'Nao identificado')}
-        {'\n- Data: ' + (dados.data ? new Date(dados.data).toLocaleDateString('pt-BR') : '-')}
-        {'\n- Valor: R$ ' + (Number(valorEditado) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        {'- Posto: ' + (dados.nomePosto || 'Nao identificado')}\n
+        {'- Data: ' + (dados.data ? new Date(dados.data).toLocaleDateString('pt-BR') : (dados.dataNota ? new Date(dados.dataNota).toLocaleDateString('pt-BR') : '-'))}\n
+        {'- Valor: R$ ' + (Number(valorEditado) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         {dados.litros ? '\n- Litros: ' + dados.litros + 'L' : ''}
         {dados.placa ? '\n- Placa: ' + dados.placa : ''}
-        {dados.cnpj ? '\n- CNPJ: ' + dados.cnpj : ''}
       </div>
-
       <div style={{ marginBottom: 10 }}>
         <label style={{ fontSize: 11, color: '#91a4b2', display: 'block', marginBottom: 4 }}>Obra</label>
-        <select
-          value={obraId}
-          onChange={(e) => setObraId(e.target.value)}
-          style={{
-            width: '100%',
-            background: 'var(--fundo-input)',
-            border: '1px solid var(--borda)',
-            borderRadius: 6,
-            padding: '6px 8px',
-            color: 'var(--texto)',
-            fontSize: 12
-          }}
-        >
+        <select value={obraId} onChange={(e) => setObraId(e.target.value)} style={{ width: '100%', background: 'var(--fundo-input)', border: '1px solid var(--borda)', borderRadius: 6, padding: '6px 8px', color: 'var(--texto)', fontSize: 12 }}>
           <option value="">Selecione a obra...</option>
           {(obras || []).map((o) => (
-            <option key={String(o._id)} value={o._id}>
-              {o.nome}{o.codigo ? ` (${o.codigo})` : ''}
-            </option>
+            <option key={String(o._id)} value={o._id}>{o.nome}{o.codigo ? ` (${o.codigo})` : ''}</option>
           ))}
         </select>
       </div>
-
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <button
-          type="button"
-          onClick={handleConfirmar}
-          disabled={!obraId}
-          style={{
-            padding: '8px 16px',
-            background: obraId ? 'var(--primaria)' : 'var(--borda)',
-            color: obraId ? '#0c171c' : '#64748b',
-            border: 'none',
-            borderRadius: 6,
-            cursor: obraId ? 'pointer' : 'default',
-            fontWeight: 600,
-            fontSize: 12
-          }}
-        >
+        <button type="button" onClick={handleConfirmar} disabled={!obraId} style={{ padding: '8px 16px', background: obraId ? 'var(--primaria)' : 'var(--borda)', color: obraId ? '#0c171c' : '#64748b', border: 'none', borderRadius: 6, cursor: obraId ? 'pointer' : 'default', fontWeight: 600, fontSize: 12 }}>
           Confirmar lancamento
         </button>
       </div>
     </div>
   );
+}
+
+function BellIcon() {
+  return <span aria-hidden>🔔</span>;
 }
 
 export default function Assistente() {
@@ -335,16 +164,12 @@ export default function Assistente() {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState('');
   const [demo, setDemo] = useState(true);
-  const [alertasCriticos, setAlertasCriticos] = useState(0);
   const [showConfig, setShowConfig] = useState(false);
   const [provider, setProvider] = useState('openai');
   const [apiKey, setApiKey] = useState('');
   const [apiKeyValid, setApiKeyValid] = useState(false);
   const [checking, setChecking] = useState(false);
   const [fotoWidget, setFotoWidget] = useState(false);
-  const [fotoBase64, setFotoBase64] = useState(null);
-  const [dadosFoto, setDadosFoto] = useState(null);
-  const [textoObra, setTextoObra] = useState('');
   const fimRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -378,10 +203,8 @@ export default function Assistente() {
     if (!pergunta) return;
     setMensagem('');
     setErro('');
-    const novaChat = [...chat, { tipo: 'user', texto: pergunta }];
-    setChat(novaChat);
+    setChat((prev) => [...prev, { tipo: 'user', texto: pergunta }]);
     setCarregando(true);
-
     try {
       const { data } = await api.post('/assistente/chat', montarPayload(pergunta));
       setDemo(data.demo !== undefined ? data.demo : !apiKeyValid);
@@ -389,17 +212,13 @@ export default function Assistente() {
         tipo: 'assistant',
         texto: data.resposta,
         fontes: data.fontes,
-        acaoSugerida: data.acaoSugerida
+        acaoSugerida: data.acaoSugerida,
+        demo: data.demo
       }]);
     } catch (err) {
       const msg = err.response?.data?.error || 'Não foi possível conectar ao assistente.';
       setErro(msg);
-      setChat((prev) => [...prev, {
-        tipo: 'assistant',
-        texto: msg,
-        fontes: [],
-        acaoSugerida: ''
-      }]);
+      setChat((prev) => [...prev, { tipo: 'assistant', texto: msg, fontes: [], acaoSugerida: '' }]);
     } finally {
       setCarregando(false);
     }
@@ -416,10 +235,7 @@ export default function Assistente() {
     if (!apiKey.trim()) return;
     setChecking(true);
     try {
-      const { data } = await api.post('/assistente/validar-chave', {
-        provider,
-        apiKey: apiKey.trim()
-      });
+      const { data } = await api.post('/assistente/validar-chave', { provider, apiKey: apiKey.trim() });
       setApiKeyValid(data.valido);
       setDemo(!data.valido);
       if (data.valido) {
@@ -434,16 +250,6 @@ export default function Assistente() {
     }
   };
 
-  const limparChave = () => {
-    localStorage.removeItem('assistenteApiKey');
-    localStorage.removeItem('assistenteProvider');
-    localStorage.removeItem('assistenteApiKeyValid');
-    setApiKey('');
-    setApiKeyValid(false);
-    setDemo(true);
-    setShowConfig(false);
-  };
-
   const limparChaveApi = () => {
     localStorage.removeItem('assistenteApiKey');
     localStorage.removeItem('assistenteProvider');
@@ -454,68 +260,38 @@ export default function Assistente() {
     setShowConfig(false);
   };
 
-  const abrirCamera = () => setFotoWidget(true);
-
   const handleFotoSelecionada = async (base64) => {
-    setFotoBase64(base64);
-    setDadosFoto(null);
-
-    setChat((prev) => [...prev, {
-      tipo: 'assistant',
-      texto: 'Analisando comprovante... aguarde',
-      fontes: [],
-      acaoSugerida: ''
-    }]);
-
+    setChat((prev) => [...prev, { tipo: 'assistant', texto: 'Analisando comprovante... aguarde', fontes: [], acaoSugerida: '' }]);
     try {
       const { data } = await api.post('/assistente/analisar-imagem', { imagemBase64: base64 });
-
       if (data.tipo === 'comprovante_abastecimento') {
-        setDadosFoto({
-          valor: data.dados?.valor || 0,
-          dataNota: data.dados?.data,
-          litros: data.dados?.litros || 0,
-          nomePosto: data.dados?.nomePosto || 'Nao identificado',
-          cnpj: data.dados?.cnpj || '',
-          placa: data.dados?.placa || '',
-          isDemo: data.isDemo,
-          obras: data.obras || []
-        });
-
-        const cardMessage = `Comprovante de abastecimento detectado!
-
-- Posto: ${data.dados?.nomePosto || 'Nao identificado'}
-- Data: ${data.dados?.data ? new Date(data.dados.data).toLocaleDateString('pt-BR') : '-'}
-- Valor: ${fmtMoeda(data.dados?.valor || 0)}
-${data.dados?.litros ? `- Litros: ${data.dados.litros}L` : ''}
-${data.dados?.placa ? `- Placa: ${data.dados.placa}` : ''}
-${data.dados?.cnpj ? `- CNPJ: ${data.dados.cnpj}` : ''}
-
-Selecione a obra para lancar a despesa:
-${(data.obras || []).map((o, i) => `${i + 1}. ${o.nome}${o.codigo ? ` (${o.codigo})` : ''}`).join('\n') || 'Nenhuma obra em andamento.'}`;
-
         setChat((prev) => [...prev.slice(0, -1), {
           tipo: 'comprovante',
-          texto: cardMessage,
-          fontes: [],
-          acaoSugerida: '',
-          fotoData: data.dados,
+          texto: 'Comprovante detectado',
+          fotoData: {
+            ...(data.dados || {}),
+            nomePosto: data.dados?.nomePosto || 'Nao identificado',
+            valor: data.dados?.valor || 0
+          },
           obras: data.obras || [],
-          isDemo: data.isDemo
+          isDemo: data.isDemo,
+          confidence: data.confidence,
+          lowConfidence: !!data.lowConfidence,
+          exigeRevisao: !!data.exigeRevisao,
+          acaoSugerida: data.mensagem || ''
         }]);
       } else {
         setChat((prev) => [...prev.slice(0, -1), {
           tipo: 'assistant',
-          texto: data.resumo || 'Nao foi possivel classificar a imagem.',
+          texto: data.resumo || data.mensagem || 'Nao foi possivel classificar a imagem.',
           fontes: [],
           acaoSugerida: ''
         }]);
       }
     } catch (err) {
-      const msg = err.response?.data?.erro || 'Erro ao processar imagem.';
       setChat((prev) => [...prev.slice(0, -1), {
         tipo: 'assistant',
-        texto: msg,
+        texto: err.response?.data?.erro || err.response?.data?.error || 'Erro ao processar imagem.',
         fontes: [],
         acaoSugerida: ''
       }]);
@@ -529,67 +305,39 @@ ${(data.obras || []).map((o, i) => `${i + 1}. ${o.nome}${o.codigo ? ` (${o.codig
         obraId,
         categoria: 'Combustivel',
         valor: dados.valor,
-        dataVencimento: dados.dataNota || new Date(),
+        dataVencimento: dados.dataNota || dados.data || new Date(),
         fornecedor: dados.nomePosto,
         placa: dados.placa,
         litros: dados.litros
       });
-
       setChat((prev) => [...prev, {
         tipo: 'assistant',
-        texto: `Despesa lancada com sucesso!
-- Valor: ${fmtMoeda(data.valor)}
-- Obra: ${data.obraNome}
-- ID: ${String(data._id).slice(-6)}`,
+        texto: `Despesa lancada com sucesso!\n- Valor: ${fmtMoeda(data.valor || dados.valor)}\n- Obra: ${data.obraNome || obraId}`,
         fontes: [],
         acaoSugerida: ''
       }]);
-
-      setDadosFoto(null);
-      setFotoBase64(null);
     } catch (err) {
-      const msg = err.response?.data?.erro || 'Erro ao lancar despesa.';
       setChat((prev) => [...prev, {
         tipo: 'assistant',
-        texto: `Erro: ${msg}`,
+        texto: err.response?.data?.error || 'Falha ao lancar despesa.',
         fontes: [],
         acaoSugerida: ''
       }]);
     }
   };
 
-  const handleTextoObra = (texto) => {
-    setTextoObra(texto);
+  const onFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const b64 = String(reader.result || '').split(',')[1];
+      if (b64) handleFotoSelecionada(b64);
+    };
+    reader.readAsDataURL(file);
   };
 
-  const carregarAlertasIniciais = async () => {
-    try {
-      const { data } = await api.post('/assistente/chat', montarPayload('Resumo do dia'));
-      setDemo(data.demo !== undefined ? data.demo : !apiKeyValid);
-      setAlertasCriticos(
-        (data.fontes?.length || 0) +
-        (data.resposta?.includes('🔴') ? 1 : 0)
-      );
-      setChat([{
-        tipo: 'assistant',
-        texto: data.resposta,
-        fontes: data.fontes,
-        acaoSugerida: data.acaoSugerida
-      }]);
-    } catch {
-      setChat([]);
-    }
-  };
-
-  useEffect(() => {
-    if (chat.length === 0) {
-      carregarAlertasIniciais();
-    }
-  }, []);
-
-  const criticos = chat.filter(
-    (m) => m.tipo === 'assistant' && m.texto.includes('🔴')
-  ).length;
+  const criticos = chat.filter((m) => String(m.texto || '').includes('🔴')).length;
 
   return (
     <div>
@@ -601,293 +349,82 @@ ${(data.obras || []).map((o, i) => `${i + 1}. ${o.nome}${o.codigo ? ` (${o.codig
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{
-            position: 'relative',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 32, height: 32,
-            background: 'var(--ativo-primario)',
-            border: '1px solid var(--primaria)',
-            borderRadius: 8
-          }}>
+          <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, background: 'var(--ativo-primario)', border: '1px solid var(--primaria)', borderRadius: 8 }}>
             <BellIcon />
             {criticos > 0 && (
-              <span style={{
-                position: 'absolute',
-                top: -2, right: -2,
-                background: 'var(--perigo)',
-                color: '#fff',
-                fontSize: 10,
-                fontWeight: 700,
-                padding: '1px 5px',
-                borderRadius: '999px',
-                minWidth: 18,
-                textAlign: 'center'
-              }}>{criticos}</span>
+              <span style={{ position: 'absolute', top: -2, right: -2, background: 'var(--perigo)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: '999px', minWidth: 18, textAlign: 'center' }}>{criticos}</span>
             )}
           </span>
-          <span style={{ fontSize: 11, color: '#64748b' }}>
-            {chat.filter((m) => m.tipo === 'assistant').length} alertas
-          </span>
-          <button
-            type="button"
-            onClick={() => setShowConfig(!showConfig)}
-            title="Configurar API"
-            className="btn btn-linha btn-mini"
-            style={{ fontSize: 11 }}
-          >
+          <button type="button" onClick={() => setShowConfig(!showConfig)} className="btn btn-linha btn-mini" style={{ fontSize: 11 }}>
             {apiKeyValid ? '🔑 API conectada' : '🔑 Conectar API'}
           </button>
         </div>
       </div>
 
+      <BriefingPanel />
+
       {showConfig && (
         <div className="card" style={{ marginTop: 16, padding: 16, border: '1px solid var(--borda)' }}>
-          <h3 style={{ margin: '0 0 12px', color: 'var(--primaria-escura)' }}>
-            {apiKeyValid ? '✅ API conectada' : '🔑 Conectar API (opcional)'}
-          </h3>
-          <p style={{ color: '#91a4b2', fontSize: 12, margin: '0 0 12px' }}>
-            Conecte sua API OpenAI ou Gemini para respostas com dados reais. Sem chave, o assistente usa modo demo.
-          </p>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <select
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-              style={{
-                flex: 1,
-                background: 'var(--fundo-input)',
-                border: '1px solid var(--borda)',
-                borderRadius: 8,
-                padding: '8px 12px',
-                color: 'var(--texto)',
-                fontSize: 14
-              }}
-            >
-              <option value="openai">OpenAI (gpt-4o-mini)</option>
-              <option value="gemini">Gemini (gemini-1.5-flash)</option>
+          <h3 style={{ margin: '0 0 12px' }}>{apiKeyValid ? '✅ API conectada' : '🔑 Conectar API (opcional)'}</h3>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
+            <select value={provider} onChange={(e) => setProvider(e.target.value)} style={{ padding: 8, borderRadius: 6 }}>
+              <option value="openai">OpenAI</option>
+              <option value="gemini">Gemini</option>
             </select>
-          </div>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={provider === 'openai' ? 'sk-...' : 'AI...'}
-              style={{
-                flex: 1,
-                background: 'var(--fundo-input)',
-                border: '1px solid var(--borda)',
-                borderRadius: 8,
-                padding: '8px 12px',
-                color: 'var(--texto)',
-                fontSize: 14
-              }}
-            />
-            <button
-              type="button"
-              onClick={validarChave}
-              disabled={checking || !apiKey.trim()}
-              style={{
-                padding: '8px 16px',
-                background: checking ? 'var(--borda)' : 'var(--primaria)',
-                color: checking ? '#64748b' : '#0c171c',
-                border: 'none',
-                borderRadius: 8,
-                cursor: checking || !apiKey.trim() ? 'default' : 'pointer',
-                fontWeight: 600,
-                fontSize: 13,
-                minWidth: 80
-              }}
-            >
-              {checking ? 'Validando…' : 'Validar'}
-            </button>
-          </div>
-          {apiKeyValid && (
-            <div style={{ marginBottom: 12, color: '#35d18a', fontSize: 13 }}>
-              ✓ Chave validada com sucesso. As respostas passarão a usar a API real.
-            </div>
-          )}
-          <div style={{ display: 'flex', justifyContent: 'right', gap: 8 }}>
-            {apiKeyValid && (
-              <button type="button" onClick={limparChave} className="btn btn-linha btn-mini" style={{ fontSize: 11 }}>
-                Limpar chave
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setShowConfig(false)}
-              className="btn btn-linha btn-mini"
-              style={{ fontSize: 11 }}
-            >
-              Fechar
-            </button>
+            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="API key" style={{ flex: 1, minWidth: 200, padding: 8, borderRadius: 6 }} />
+            <button type="button" className="btn btn-primario btn-mini" disabled={checking} onClick={validarChave}>{checking ? '…' : 'Validar'}</button>
+            {apiKeyValid && <button type="button" className="btn btn-linha btn-mini" onClick={limparChaveApi}>Remover</button>}
           </div>
         </div>
       )}
 
-      <div className="card" style={{
-        marginTop: 16,
-        padding: 16,
-        height: '50vh',
-        display: 'flex',
-        flexDirection: 'column',
-        overflowY: 'auto'
-      }}>
-        {chat.length === 0 && !carregando && (
-          <div style={{ color: '#64748b', textAlign: 'center', padding: '40px 0' }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>🤖</div>
-            <p>Olá! Sou sua assistente virtual do proprietário.</p>
-            <p>Pergunte sobre contas, etapas, obras, certidões ou documentos de RH.</p>
-            {!apiKeyValid && (
-              <p style={{ fontSize: 12, marginTop: 8 }}>
-                🔑 Conecte sua API (OpenAI ou Gemini) para respostas com dados reais do sistema.
-              </p>
-            )}
-          </div>
-        )}
+      <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        {PERGUNTAS_RAPIDAS.map((p) => (
+          <button key={p} type="button" className="btn btn-linha btn-mini" disabled={carregando} onClick={() => enviarMensagem(p)} style={{ fontSize: 12 }}>{p}</button>
+        ))}
+        <button type="button" className="btn btn-linha btn-mini" onClick={() => fileInputRef.current?.click()} style={{ fontSize: 12 }}>📷 Comprovante</button>
+        <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={onFile} />
+      </div>
 
+      <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 280 }}>
         {chat.map((msg, i) => (
-          <div key={i} style={{
-            display: 'flex',
-            flexDirection: msg.tipo === 'user' ? 'row-reverse' : 'row',
-            marginBottom: 12,
-            gap: 8
-          }}>
+          <div key={i} style={{ display: 'flex', justifyContent: msg.tipo === 'user' ? 'flex-end' : 'flex-start' }}>
+            {msg.tipo === 'user' && <BubbleUsuario mensagem={msg.texto} />}
             {msg.tipo === 'assistant' && (
-              <div style={{
-                width: 32, height: 32,
-                background: 'var(--primaria-escuro)',
-                borderRadius: '50%',
-                display: 'grid',
-                placeItems: 'center',
-                flexShrink: 0
-              }}>
-                <span style={{ fontSize: 16 }}>🤖</span>
-              </div>
+              <BubbleAssistente mensagem={msg.texto} fontes={msg.fontes} acaoSugerida={msg.acaoSugerida} demo={msg.demo ?? demo} />
             )}
-            {msg.tipo === 'user' ? (
-              <BubbleUsuario mensagem={msg.texto} />
-            ) : msg.tipo === 'comprovante' ? (
+            {msg.tipo === 'comprovante' && (
               <CardComprovante
                 dados={msg.fotoData}
                 obras={msg.obras}
                 isDemo={msg.isDemo}
+                confidence={msg.confidence}
+                lowConfidence={msg.lowConfidence}
+                exigeRevisao={msg.exigeRevisao}
                 onConfirmar={handleConfirmarDespesa}
-              />
-            ) : (
-              <BubbleAssistente
-                mensagem={msg.texto}
-                fontes={msg.fontes}
-                acaoSugerida={msg.acaoSugerida}
-                demo={demo}
               />
             )}
           </div>
         ))}
-
-        {carregando && (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#64748b' }}>
-            <div style={{
-              width: 32, height: 32,
-              background: 'var(--primaria-escuro)',
-              borderRadius: '50%',
-              display: 'grid',
-              placeItems: 'center',
-              flexShrink: 0
-            }}>
-              <span style={{ fontSize: 16 }}>🤖</span>
-            </div>
-            <div>Analisando...</div>
-          </div>
-        )}
-
+        {carregando && <div style={{ fontSize: 13, color: '#91a4b2' }}>Pensando…</div>}
+        {erro && <div style={{ color: '#fbbf24', fontSize: 13 }}>{erro}</div>}
         <div ref={fimRef} />
       </div>
 
-      {erro && <div className="erro" role="alert" style={{ marginTop: 8 }}>{erro}</div>}
-
-      <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {PERGUNTAS_RAPIDAS.map((p) => (
-            <button
-              key={p}
-              type="button"
-              className="btn btn-linha btn-mini"
-              onClick={() => enviarMensagem(p)}
-              disabled={carregando}
-              style={{ fontSize: 11, whiteSpace: 'nowrap' }}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            type="button"
-            onClick={abrirCamera}
-            disabled={carregando}
-            title="Enviar foto de nota"
-            style={{
-              padding: '0 12px',
-              background: 'var(--primaria-escuro)',
-              color: 'var(--texto)',
-              border: '1px solid var(--borda)',
-              borderRadius: 8,
-              cursor: carregando ? 'default' : 'pointer',
-              fontSize: 14
-            }}
-          >
-            📷
-          </button>
-          <textarea
-            value={mensagem}
-            onChange={(e) => setMensagem(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Pergunte sobre prazos, contas, obras, documentos... ou envie uma foto de nota"
-            disabled={carregando}
-            rows={2}
-            style={{
-              flex: 1,
-              background: 'var(--fundo-input)',
-              border: '1px solid var(--borda)',
-              borderRadius: 8,
-              padding: '8px 12px',
-              color: 'var(--texto)',
-              fontSize: 14,
-              resize: 'vertical'
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => enviarMensagem()}
-            disabled={carregando || !mensagem.trim()}
-            title="Enviar"
-            style={{
-              padding: '0 16px',
-              background: carregando ? 'var(--borda)' : 'var(--primaria)',
-              color: carregando ? '#64748b' : '#0c171c',
-              border: 'none',
-              borderRadius: 8,
-              cursor: carregando ? 'default' : 'pointer',
-              fontWeight: 700,
-              fontSize: 13
-            }}
-          >
-            {carregando ? '…' : '→'}
-          </button>
-        </div>
+      <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
+        <textarea
+          value={mensagem}
+          onChange={(e) => setMensagem(e.target.value)}
+          onKeyDown={handleKeyDown}
+          rows={2}
+          placeholder="Pergunte sobre contas, obras, RH…"
+          style={{ flex: 1, padding: 10, borderRadius: 8, border: '1px solid var(--borda)', background: 'var(--fundo-input)', color: 'var(--texto)', resize: 'vertical' }}
+          disabled={carregando}
+        />
+        <button type="button" className="btn btn-primario" disabled={carregando || !mensagem.trim()} onClick={() => enviarMensagem()}>
+          Enviar
+        </button>
       </div>
     </div>
-  );
-}
-
-function BellIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M10.266 21a2 2 0 0 0 3.464 0" />
-      <path d="M1 11.25a9 9 0 0 1 15.9-6.35 1 1 0 0 1 .65.85v3.75a2 2 0 0 0 2 2h1.5a1 1 0 0 1 .7.7l.3 1.5a1 1 0 0 1-.7 1.2L4.5 22a1 1 0 0 1-1.2-.7l-.3-1.5a1 1 0 0 1 .7-1.2l10.5-.5a1 1 0 0 0 1-.7V8a7 7 0 0 0-13.95.5v2.25a1 1 0 0 0 1 1Z" />
-    </svg>
   );
 }
