@@ -6,6 +6,7 @@ import Medicao from '../../models/Medicao.js';
 import Etapa from '../../models/Etapa.js';
 import Certidao from '../../models/Certidao.js';
 import Licitacao from '../../models/Licitacao.js';
+import Ferias from '../../models/Ferias.js';
 import ArquivoDocumento from '../../models/ArquivoDocumento.js';
 import { SYSTEM_PROMPT } from './LLMService.js';
 import { getLlmRouter } from '../llm/index.js';
@@ -13,35 +14,24 @@ import { processarDocumentoFinanceiro } from './fluxoFinanceiro.js';
 import { montarPreviaRdo, montarPreviaMedicao, statusFisicoFinanceiro, buscarObraPorTexto } from './fluxoEngenharia.js';
 import { montarPreviaCertidao, resumoCertidoes } from './fluxoJuridico.js';
 import { montarPreviaLicitacao, resumoPrazosLicitacao } from './fluxoLicitacoes.js';
+import { montarPreviaFerias, resumoRH } from './fluxoRH.js';
 
-const SISTEMA_WHATSAPP_PROMPT = `${SYSTEM_PROMPT}\n\nREGRAS ADICIONAIS PARA WHATSAPP:\n1. VOCÊ NÃO EXECUTA AÇÕES DIRETAMENTE. Você prepara PRÉVIAS para confirmação humana.\n2. RDO, medições, certidões e licitações exigem SIM/NÃO.\n3. NUNCA grave sem confirmação humana.`;
+const SISTEMA_WHATSAPP_PROMPT = `${SYSTEM_PROMPT}\n\nREGRAS ADICIONAIS PARA WHATSAPP:\n1. VOCÊ NÃO EXECUTA AÇÕES DIRETAMENTE. Você prepara PRÉVIAS para confirmação humana.\n2. RDO, medições, certidões, licitações e férias exigem SIM/NÃO.\n3. NUNCA grave sem confirmação humana.`;
 
 function extrairIntencaoKeyword(mensagem) {
   const msg = String(mensagem || '').toLowerCase();
-  if (
-    msg.includes('licita') ||
-    msg.includes('pregão') ||
-    msg.includes('pregao') ||
-    msg.includes('edital') ||
-    msg.includes('tomada de preço')
-  ) {
-    if (
-      msg.includes('prazo') ||
-      msg.includes('sessão') ||
-      msg.includes('sessao') ||
-      msg === 'licitações' ||
-      msg === 'licitacoes' ||
-      msg.startsWith('licitações') ||
-      msg.startsWith('licitacoes')
-    ) {
+  if (msg.includes('férias') || msg.includes('ferias')) return 'ferias';
+  if (msg.includes('rh') || msg.includes('colaborador') || msg.includes('aso') || msg.includes('epi') || msg.includes('funcionário') || msg.includes('funcionario')) {
+    return 'rh';
+  }
+  if (msg.includes('licita') || msg.includes('pregão') || msg.includes('pregao') || msg.includes('edital') || msg.includes('tomada de preço')) {
+    if (msg.includes('prazo') || msg.includes('sessão') || msg.includes('sessao') || msg === 'licitações' || msg === 'licitacoes' || msg.startsWith('licitações') || msg.startsWith('licitacoes')) {
       return 'licitacoes_prazo';
     }
     return 'licitacao';
   }
   if (msg.includes('certidão') || msg.includes('certidao') || msg.includes('cnd') || msg.includes('cndt')) {
-    if (msg.includes('vence') || msg.includes('vencid') || msg.includes('lista') || msg === 'certidões' || msg === 'certidoes') {
-      return 'certidoes_vencendo';
-    }
+    if (msg.includes('vence') || msg.includes('vencid') || msg.includes('lista') || msg === 'certidões' || msg === 'certidoes') return 'certidoes_vencendo';
     return 'certidao';
   }
   if (msg.includes('rdo') || msg.includes('diário') || msg.includes('diario')) return 'rdo';
@@ -89,19 +79,12 @@ export async function processarMensagemIA({
   const msgLower = String(mensagem || '').toLowerCase();
   const pareceRdo = intencao === 'rdo' || msgLower.includes('rdo') || msgLower.includes('diário') || msgLower.includes('diario');
   const pareceCertidao =
-    intencao === 'certidao' ||
-    msgLower.includes('certidão') ||
-    msgLower.includes('certidao') ||
-    msgLower.includes('cnd');
+    intencao === 'certidao' || msgLower.includes('certidão') || msgLower.includes('certidao') || msgLower.includes('cnd');
 
   if (anexo?.url || anexo?.base64 || anexo?.imagemBase64) {
     const imagem = anexo.url || anexo.base64 || anexo.imagemBase64;
-    if (pareceRdo) {
-      return montarPreviaRdo({ empresaId, mensagem, imagemBase64: imagem, usuarioWhatsAppId });
-    }
-    if (pareceCertidao) {
-      return montarPreviaCertidao({ empresaId, mensagem: mensagem || 'certidão', imagemBase64: imagem });
-    }
+    if (pareceRdo) return montarPreviaRdo({ empresaId, mensagem, imagemBase64: imagem, usuarioWhatsAppId });
+    if (pareceCertidao) return montarPreviaCertidao({ empresaId, mensagem: mensagem || 'certidão', imagemBase64: imagem });
     try {
       const fluxo = await processarDocumentoFinanceiro({ empresaId, imagemBase64: imagem, mensagem });
       try {
@@ -143,25 +126,17 @@ export async function processarMensagemIA({
   }
 
   if (intencao === 'confirm') {
-    return {
-      resposta: 'Para confirmar a prévia, responda SIM na conversa WhatsApp ou use o botão no app.',
-      requerConfirmacao: false,
-      previas: [],
-      ferramentasUsadas: [],
-      fontes: []
-    };
+    return { resposta: 'Para confirmar a prévia, responda SIM ou use o botão no app.', requerConfirmacao: false, previas: [], ferramentasUsadas: [], fontes: [] };
   }
   if (intencao === 'deny') {
-    return {
-      resposta: 'Ok, operação cancelada. Nenhuma alteração foi feita.',
-      requerConfirmacao: false,
-      previas: [],
-      ferramentasUsadas: [],
-      fontes: []
-    };
+    return { resposta: 'Ok, operação cancelada. Nenhuma alteração foi feita.', requerConfirmacao: false, previas: [], ferramentasUsadas: [], fontes: [] };
   }
 
   switch (intencao) {
+    case 'rh':
+      return resumoRH(empresaId);
+    case 'ferias':
+      return montarPreviaFerias({ empresaId, mensagem });
     case 'licitacao':
       return montarPreviaLicitacao({ empresaId, mensagem });
     case 'licitacoes_prazo':
@@ -177,24 +152,12 @@ export async function processarMensagemIA({
     case 'status_obra': {
       const obra = await buscarObraPorTexto(empresaId, mensagem);
       if (!obra) {
-        return {
-          resposta: 'Informe a obra, ex.: "percentual obra CAPS".',
-          requerConfirmacao: false,
-          previas: [],
-          ferramentasUsadas: [],
-          fontes: []
-        };
+        return { resposta: 'Informe a obra, ex.: "percentual obra CAPS".', requerConfirmacao: false, previas: [], ferramentasUsadas: [], fontes: [] };
       }
       const st = await statusFisicoFinanceiro(empresaId, obra._id);
       return {
         resposta:
-          `🏗️ *${st.obra.nome}*\n` +
-          `Físico: ${st.percentualFisico}%\n` +
-          `Financeiro: ${st.percentualFinanceiro}%\n` +
-          `Gap (físico − financeiro): ${st.gap} p.p.\n` +
-          (st.etapas?.length
-            ? `Etapas: ${st.etapas.slice(0, 5).map((e) => `${e.descricao} ${e.quantidadeMedida}/${e.quantidadeTotal}`).join('; ')}`
-            : ''),
+          `🏗️ *${st.obra.nome}*\nFísico: ${st.percentualFisico}%\nFinanceiro: ${st.percentualFinanceiro}%\nGap: ${st.gap} p.p.`,
         requerConfirmacao: false,
         previas: [],
         ferramentasUsadas: ['statusFisicoFinanceiro'],
@@ -216,6 +179,7 @@ async function processarResumoDia(empresaId) {
   const resumo = await ferramentas.resumoDoDia({ empresaId });
   const cert = await resumoCertidoes(empresaId);
   const lic = await resumoPrazosLicitacao(empresaId);
+  const rh = await resumoRH(empresaId);
   let texto = '📋 **Resumo do Dia**\n\n';
   if (resumo.contasPagar?.itens?.length > 0) {
     texto += '🔴 **CRÍTICO — Contas a pagar:**\n';
@@ -225,13 +189,14 @@ async function processarResumoDia(empresaId) {
     texto += '\n';
   }
   if (cert.itens?.length) texto += cert.resposta + '\n\n';
-  if (lic.itens?.length || lic.garantias?.length) texto += lic.resposta + '\n';
+  if (lic.itens?.length || lic.garantias?.length) texto += lic.resposta + '\n\n';
+  if (rh.documentos?.length || rh.ferias?.length) texto += rh.resposta + '\n';
   return {
     resposta: texto,
     requerConfirmacao: false,
     previas: [],
-    ferramentasUsadas: ['resumoDoDia', 'fluxoJuridico.listar', 'fluxoLicitacoes.prazos'],
-    fontes: [...(resumo.contasPagar?.fontes || []), ...(cert.fontes || []), ...(lic.fontes || [])]
+    ferramentasUsadas: ['resumoDoDia', 'fluxoJuridico', 'fluxoLicitacoes', 'fluxoRH'],
+    fontes: [...(resumo.contasPagar?.fontes || []), ...(cert.fontes || []), ...(lic.fontes || []), ...(rh.fontes || [])]
   };
 }
 
@@ -242,49 +207,21 @@ async function processarConsultaContasPagar(empresaId, mensagem) {
   if (matchDias) dias = parseInt(matchDias[1], 10);
   const resultado = await ferramentas.contasAPagarVencendo({ empresaId, dias });
   if (!resultado.itens.length) {
-    return {
-      resposta: 'Não encontrei contas a pagar com esses critérios.',
-      requerConfirmacao: false,
-      previas: [],
-      ferramentasUsadas: ['contasAPagarVencendo'],
-      fontes: []
-    };
+    return { resposta: 'Não encontrei contas a pagar com esses critérios.', requerConfirmacao: false, previas: [], ferramentasUsadas: ['contasAPagarVencendo'], fontes: [] };
   }
   let texto = `🔴 **Contas a pagar (próximos ${dias} dias):**\n\n`;
-  for (const item of resultado.itens.slice(0, 10)) {
-    texto += `• ${item.fornecedor} — ${item.valor}\n`;
-  }
-  return {
-    resposta: texto,
-    requerConfirmacao: false,
-    previas: [],
-    ferramentasUsadas: ['contasAPagarVencendo'],
-    fontes: resultado.fontes
-  };
+  for (const item of resultado.itens.slice(0, 10)) texto += `• ${item.fornecedor} — ${item.valor}\n`;
+  return { resposta: texto, requerConfirmacao: false, previas: [], ferramentasUsadas: ['contasAPagarVencendo'], fontes: resultado.fontes };
 }
 
 async function processarConsultaContasReceber(empresaId) {
   const resultado = await ferramentas.contasAReceberAtrasadas({ empresaId });
   if (!resultado.itens?.length) {
-    return {
-      resposta: 'Sem contas a receber atrasadas.',
-      requerConfirmacao: false,
-      previas: [],
-      ferramentasUsadas: ['contasAReceberAtrasadas'],
-      fontes: []
-    };
+    return { resposta: 'Sem contas a receber atrasadas.', requerConfirmacao: false, previas: [], ferramentasUsadas: ['contasAReceberAtrasadas'], fontes: [] };
   }
   let texto = '🔴 **Contas a receber atrasadas:**\n';
-  for (const item of resultado.itens.slice(0, 10)) {
-    texto += `• ${item.cliente} — ${item.valor}\n`;
-  }
-  return {
-    resposta: texto,
-    requerConfirmacao: false,
-    previas: [],
-    ferramentasUsadas: ['contasAReceberAtrasadas'],
-    fontes: resultado.fontes
-  };
+  for (const item of resultado.itens.slice(0, 10)) texto += `• ${item.cliente} — ${item.valor}\n`;
+  return { resposta: texto, requerConfirmacao: false, previas: [], ferramentasUsadas: ['contasAReceberAtrasadas'], fontes: resultado.fontes };
 }
 
 async function processarConsultaGeral(empresaId, mensagem) {
@@ -292,7 +229,7 @@ async function processarConsultaGeral(empresaId, mensagem) {
   return {
     resposta:
       `Recebi: "${mensagem}".\n` +
-      `Comandos: PIX/boleto/NF · RDO · medição · percentual obra · certidões · licitações · licitação município X objeto Y…\n` +
+      `Comandos: PIX/boleto/NF · RDO · medição · certidões · licitações · RH · férias Nome de dd/mm a dd/mm.\n` +
       `Alertas: ${resumo.totalAlertas || 0}.`,
     requerConfirmacao: false,
     previas: [],
@@ -334,14 +271,7 @@ export async function executarPreviasConfirmadas(empresaId, previas, usuarioId) 
         resultados.push({ ok: true, sucesso: true, modelo: 'RecebivelObra', id: created._id, acao: 'criar' });
       } else if (previa.modelo === 'DiarioObra' && previa.acao === 'criar') {
         const data = startOfDay(previa.dados.data || new Date());
-        const payload = {
-          ...previa.dados,
-          data,
-          empresa: empresaId,
-          confirmado: true,
-          confirmadoEm: new Date(),
-          confirmadoPor: usuarioId || undefined
-        };
+        const payload = { ...previa.dados, data, empresa: empresaId, confirmado: true, confirmadoEm: new Date(), confirmadoPor: usuarioId || undefined };
         let created;
         try {
           created = await DiarioObra.create(payload);
@@ -359,48 +289,29 @@ export async function executarPreviasConfirmadas(empresaId, previas, usuarioId) 
         const { obra, etapa, quantidade } = previa.dados;
         const q = Number(quantidade);
         const etapaAtualizada = await Etapa.findOneAndUpdate(
-          {
-            _id: etapa,
-            obra,
-            empresa: empresaId,
-            $expr: { $lte: [{ $add: ['$quantidadeMedida', q] }, '$quantidadeTotal'] }
-          },
-          [
-            {
-              $set: {
-                quantidadeMedida: { $add: ['$quantidadeMedida', q] },
-                status: {
-                  $cond: [
-                    { $gte: [{ $add: ['$quantidadeMedida', q] }, '$quantidadeTotal'] },
-                    'concluida',
-                    'em_andamento'
-                  ]
-                }
-              }
-            }
-          ],
+          { _id: etapa, obra, empresa: empresaId, $expr: { $lte: [{ $add: ['$quantidadeMedida', q] }, '$quantidadeTotal'] } },
+          [{ $set: { quantidadeMedida: { $add: ['$quantidadeMedida', q] }, status: { $cond: [{ $gte: [{ $add: ['$quantidadeMedida', q] }, '$quantidadeTotal'] }, 'concluida', 'em_andamento'] } } }],
           { new: true }
         );
         if (!etapaAtualizada) {
           resultados.push({ ok: false, sucesso: false, erro: 'Etapa sem saldo ou inexistente', acao: 'criar' });
         } else {
-          const created = await Medicao.create({
-            ...previa.dados,
-            empresa: empresaId,
-            responsavel: previa.dados.responsavel || 'Assistente'
-          });
+          const created = await Medicao.create({ ...previa.dados, empresa: empresaId, responsavel: previa.dados.responsavel || 'Assistente' });
           resultados.push({ ok: true, sucesso: true, modelo: 'Medicao', id: created._id, acao: 'criar' });
         }
       } else if (previa.modelo === 'Certidao' && previa.acao === 'criar') {
         const created = await Certidao.create({ ...previa.dados, empresa: empresaId });
         resultados.push({ ok: true, sucesso: true, modelo: 'Certidao', id: created._id, acao: 'criar' });
       } else if (previa.modelo === 'Licitacao' && previa.acao === 'criar') {
-        const created = await Licitacao.create({
+        const created = await Licitacao.create({ ...previa.dados, empresa: empresaId, criadoPor: previa.dados.criadoPor || usuarioId || undefined });
+        resultados.push({ ok: true, sucesso: true, modelo: 'Licitacao', id: created._id, acao: 'criar' });
+      } else if (previa.modelo === 'Ferias' && previa.acao === 'criar') {
+        const created = await Ferias.create({
           ...previa.dados,
           empresa: empresaId,
           criadoPor: previa.dados.criadoPor || usuarioId || undefined
         });
-        resultados.push({ ok: true, sucesso: true, modelo: 'Licitacao', id: created._id, acao: 'criar' });
+        resultados.push({ ok: true, sucesso: true, modelo: 'Ferias', id: created._id, acao: 'criar' });
       } else {
         resultados.push({ ok: false, sucesso: false, erro: `Ação não suportada: ${previa.modelo}/${previa.acao}` });
       }
