@@ -14,6 +14,7 @@ import BriefingService from '../services/BriefingService.js';
 import { processarMensagemIA, executarPreviasConfirmadas } from '../services/assistente/whatsappProcessor.js';
 import crypto from 'crypto';
 import { sendWhatsAppMessageWithRetry } from '../services/whatsappService.js';
+import { getLlmRouter } from '../services/llm/index.js';
 
 const router = express.Router();
 
@@ -59,7 +60,6 @@ function extrairDemoFlag(instancia) {
   return instancia?.modoEmissao === 'demo';
 }
 
-// WhatsApp Webhook Endpoint
 router.post('/webhook', async (req, res, next) => {
   try {
     const signature = req.headers['x-hub-signature-256'] || req.headers['x-signature'] || req.headers['X-Signature'];
@@ -220,24 +220,31 @@ router.post('/webhook', async (req, res, next) => {
   }
 });
 
-router.get('/status', (req, res) => {
-  const provedor = process.env.OPENAI_API_KEY
+router.get('/status', async (req, res) => {
+  const provedorLegado = process.env.OPENAI_API_KEY
     ? 'OpenAI (gpt-4o-mini)'
     : process.env.GEMINI_API_KEY
       ? 'Gemini (gemini-1.5-flash)'
       : 'MockAssistente (demo)';
   const demo = !process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY;
 
+  let hybrid = { ollama: false, cloud: false, defaultProvider: process.env.LLM_DEFAULT_PROVIDER || 'ollama' };
+  try {
+    hybrid = await getLlmRouter().health();
+  } catch (err) {
+    console.error('[Assistente] llm health:', err.message);
+  }
+
   res.json({
-    provedor,
+    provedor: provedorLegado,
     demo,
     limite: '20 consultas/hora',
     chaveConfigurada: !!(process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY),
-    confidenceThreshold: Number(process.env.LLM_RECEIPT_CONFIDENCE_THRESHOLD || 0.7)
+    confidenceThreshold: Number(process.env.LLM_RECEIPT_CONFIDENCE_THRESHOLD || 0.7),
+    hybrid
   });
 });
 
-/** Briefing diário estruturado (Operação Enxuta) */
 router.get('/briefing', async (req, res, next) => {
   try {
     const modulo = req.query.modulo;
