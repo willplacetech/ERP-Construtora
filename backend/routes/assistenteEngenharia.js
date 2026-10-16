@@ -1,7 +1,4 @@
-/**
- * Rotas de engenharia enxuta montadas em /api/assistente
- * (importadas no final de assistente.js via side-effect registration)
- */
+import express from 'express';
 import MensagemAssistente from '../models/MensagemAssistente.js';
 import { montarPreviaRdo, montarPreviaMedicao, statusFisicoFinanceiro } from '../services/assistente/fluxoEngenharia.js';
 
@@ -86,4 +83,6 @@ export function registerEngenhariaRoutes(router) {
   });
 }
 
-export default registerEngenhariaRoutes;
+// Router vazio: o server auto-carrega *.js em routes/
+const noop = express.Router();
+export default noop;
