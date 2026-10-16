@@ -5,7 +5,8 @@
   "type": "module",
   "main": "server.js",
   "scripts": {
-    "test": "node --test tests/**/*.test.js",
+    "test": "node --test --test-reporter=spec tests/**/*.test.js tests/**/**/*.test.js",
+    "test:unit": "node --test tests/assistente/*.test.js tests/smoke/*.test.js",
     "test:watch": "node --test --watch tests/**/*.test.js",
     "start": "node server.js",
     "dev": "nodemon server.js",
