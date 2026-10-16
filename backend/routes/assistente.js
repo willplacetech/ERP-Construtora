@@ -1,8 +1,7 @@
 import express from 'express';
-import { analisarImagem, processarImagemComprovante, processarImagemBoleto, processarImagemNF, processarImagemCheque, processarImagemPIX, processarImagemGenerica } from '../services/assistente/extratorFoto.js';
+import { analisarImagem } from '../services/assistente/extratorFoto.js';
 import Obra from '../models/Obra.js';
-import Lancamento from '../models/Lancamento.js';
-import { protect, adminOnly } from '../middleware/auth.js';
+import { protect } from '../middleware/auth.js';
 import rateLimit from 'express-rate-limit';
 import MensagemAssistente from '../models/MensagemAssistente.js';
 import WhatsAppLog from '../models/WhatsAppLog.js';
@@ -12,6 +11,7 @@ import mongoose from 'mongoose';
 import ContextService from '../services/ContextService.js';
 import BriefingService from '../services/BriefingService.js';
 import { processarMensagemIA, executarPreviasConfirmadas } from '../services/assistente/whatsappProcessor.js';
+import { processarDocumentoFinanceiro, montarPreviaBaixa, montarPreviaCriacao, normalizarDocumento } from '../services/assistente/fluxoFinanceiro.js';
 import crypto from 'crypto';
 import { sendWhatsAppMessageWithRetry } from '../services/whatsappService.js';
 import { getLlmRouter } from '../services/llm/index.js';
@@ -20,10 +20,10 @@ const router = express.Router();
 
 const chatLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
-  limit: 20,
+  limit: 40,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  message: { error: 'Limite de 20 consultas por hora atingido. Tente novamente mais tarde.' }
+  message: { error: 'Limite de consultas por hora atingido. Tente novamente mais tarde.' }
 });
 
 router.use(protect);
@@ -67,56 +67,33 @@ router.post('/webhook', async (req, res, next) => {
 
     if (verifyToken && signature) {
       let isValid = false;
-
       if (signature.startsWith('sha256=')) {
         const receivedSignature = signature.substring(7);
-        const expectedSignature = crypto.createHmac('sha256', verifyToken)
-          .update(JSON.stringify(req.body))
-          .digest('hex');
-        isValid = receivedSignature === expectedSignature;
-      } else if (signature.startsWith('sha1=')) {
-        const receivedSignature = signature.substring(5);
-        const expectedSignature = crypto.createHmac('sha1', verifyToken)
-          .update(JSON.stringify(req.body))
-          .digest('hex');
+        const expectedSignature = crypto.createHmac('sha256', verifyToken).update(JSON.stringify(req.body)).digest('hex');
         isValid = receivedSignature === expectedSignature;
       } else {
         isValid =
           signature ===
           crypto.createHmac('sha256', verifyToken).update(JSON.stringify(req.body)).digest('hex');
       }
-
-      if (!isValid) {
-        return res.status(403).json({ error: 'Assinatura do webhook invalida' });
-      }
+      if (!isValid) return res.status(403).json({ error: 'Assinatura do webhook invalida' });
     }
 
     let mensagem = '';
     let mensagemId = '';
     let contatoId = '';
-    let perfilNome = '';
     let empresaId = req.headers['x-empresa-id'] || null;
 
-    if (
-      req.body.entry &&
-      req.body.entry[0] &&
-      req.body.entry[0].changes &&
-      req.body.entry[0].changes[0] &&
-      req.body.entry[0].changes[0].value &&
-      req.body.entry[0].changes[0].value.messages &&
-      req.body.entry[0].changes[0].value.messages[0]
-    ) {
+    if (req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]) {
       const msg = req.body.entry[0].changes[0].value.messages[0];
       mensagemId = msg.id;
       mensagem = msg.text?.body || '';
       contatoId = msg.from;
-      perfilNome = req.body.entry[0].changes[0].value.contacts?.[0]?.profile?.name || '';
     } else if (req.body.event && req.body.data) {
       mensagemId = req.body.messageId || req.body.id || '';
       mensagem = req.body.data?.message || req.body.data?.text || '';
       contatoId = req.body.data?.key?.remoteJid || req.body.data?.sender || '';
-      perfilNome = req.body.data?.pushName || '';
-    } else if (req.body.messages && req.body.messages[0]) {
+    } else if (req.body.messages?.[0]) {
       const msg = req.body.messages[0];
       mensagemId = msg.id || '';
       mensagem = msg.text || '';
@@ -125,15 +102,11 @@ router.post('/webhook', async (req, res, next) => {
       mensagem = req.body.message || req.body.text || req.body.msg || '';
       mensagemId = req.body.id || req.body.messageId || '';
       contatoId = req.body.from || req.body.sender || req.body.contact || '';
-      perfilNome = req.body.profileName || req.body.pushName || '';
     }
 
-    if (!mensagem) {
-      return res.status(400).json({ error: 'Mensagem nao encontrada no webhook' });
-    }
+    if (!mensagem) return res.status(400).json({ error: 'Mensagem nao encontrada no webhook' });
 
-    let finalEmpresaId = empresaId || process.env.DEFAULT_WHATSAPP_EMPRESA_ID || null;
-
+    const finalEmpresaId = empresaId || process.env.DEFAULT_WHATSAPP_EMPRESA_ID || null;
     if (!finalEmpresaId) {
       return res.status(400).json({ error: 'Empresa nao identificada para este numero do WhatsApp' });
     }
@@ -148,29 +121,17 @@ router.post('/webhook', async (req, res, next) => {
     });
 
     let respostaTexto = resultado.resposta || 'Desculpe, nao consegui processar sua mensagem.';
-
     if (resultado.requerConfirmacao && resultado.previas?.length) {
       respostaTexto +=
         '\n\n⚠️ Esta acao requer sua confirmacao. Responda com "SIM" para confirmar ou "NAO" para cancelar.';
     }
 
-    let mensagemDoc = null;
     if (mensagemId) {
-      mensagemDoc = await MensagemAssistente.findOne({
-        whatsappMessageId: mensagemId,
-        empresa: finalEmpresaId
-      });
+      const existing = await MensagemAssistente.findOne({ whatsappMessageId: mensagemId, empresa: finalEmpresaId });
+      if (existing) {
+        return res.status(200).json({ status: 'success', messageId: mensagemId, timestamp: existing.createdAt?.toISOString() });
+      }
     }
-    if (mensagemDoc) {
-      console.log('[WhatsApp Webhook] Duplicate messageId detected, returning existing response');
-      return res.status(200).json({
-        status: 'success',
-        messageId: mensagemId,
-        timestamp: mensagemDoc.createdAt?.toISOString() ?? new Date().toISOString()
-      });
-    }
-
-    console.log('[WhatsApp Webhook] Resposta para enviar:', respostaTexto);
 
     await MensagemAssistente.create({
       empresa: finalEmpresaId,
@@ -188,19 +149,8 @@ router.post('/webhook', async (req, res, next) => {
     try {
       const toNumber = String(contatoId).replace(/\D/g, '');
       await sendWhatsAppMessageWithRetry(toNumber, respostaTexto);
-      await WhatsAppLog.create({
-        empresa: finalEmpresaId,
-        messageId: mensagemId,
-        status: 'sent',
-        tentativas: 1,
-        erro: null
-      });
-
-      return res.status(200).json({
-        status: 'success',
-        messageId: mensagemId,
-        timestamp: new Date().toISOString()
-      });
+      await WhatsAppLog.create({ empresa: finalEmpresaId, messageId: mensagemId, status: 'sent', tentativas: 1, erro: null });
+      return res.status(200).json({ status: 'success', messageId: mensagemId, timestamp: new Date().toISOString() });
     } catch (sendErr) {
       await WhatsAppLog.create({
         empresa: finalEmpresaId,
@@ -209,11 +159,7 @@ router.post('/webhook', async (req, res, next) => {
         tentativas: 1,
         erro: sendErr.message || 'Erro desconhecido'
       });
-      return res.status(200).json({
-        status: 'error',
-        error: sendErr.message || 'Erro desconhecido',
-        timestamp: new Date().toISOString()
-      });
+      return res.status(200).json({ status: 'error', error: sendErr.message, timestamp: new Date().toISOString() });
     }
   } catch (err) {
     return next(err);
@@ -227,18 +173,16 @@ router.get('/status', async (req, res) => {
       ? 'Gemini (gemini-1.5-flash)'
       : 'MockAssistente (demo)';
   const demo = !process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY;
-
   let hybrid = { ollama: false, cloud: false, defaultProvider: process.env.LLM_DEFAULT_PROVIDER || 'ollama' };
   try {
     hybrid = await getLlmRouter().health();
   } catch (err) {
     console.error('[Assistente] llm health:', err.message);
   }
-
   res.json({
     provedor: provedorLegado,
     demo,
-    limite: '20 consultas/hora',
+    limite: '40 consultas/hora',
     chaveConfigurada: !!(process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY),
     confidenceThreshold: Number(process.env.LLM_RECEIPT_CONFIDENCE_THRESHOLD || 0.7),
     hybrid
@@ -339,56 +283,110 @@ router.post('/whatsapp/executar-previas', async (req, res, next) => {
           $set: { 'confirmacao.status': 'CANCELADO', 'confirmacao.erro': err.message }
         });
       } catch {
-        /* Mantém a reserva se não for possível registrar o erro. */
+        /* ignore */
       }
     }
     return next(err);
   }
 });
 
-router.post('/analisar-imagem', async (req, res, next) => {
+/** OCR + matching + prévias (Sprint A) — não grava até confirmar */
+router.post('/documento/processar', async (req, res, next) => {
   try {
-    const { imagemBase64 } = req.body || {};
+    const { imagemBase64, tipoForcado, mensagem } = req.body || {};
     if (!imagemBase64) return res.status(400).json({ error: 'imagemBase64 e obrigatorio' });
     if (imagemBase64.length > 10 * 1024 * 1024) {
       return res.status(400).json({ error: 'Imagem muito grande (max 10MB)' });
     }
 
-    const resultado = await analisarImagem(imagemBase64);
+    const fluxo = await processarDocumentoFinanceiro({
+      empresaId: req.user.empresa,
+      imagemBase64,
+      tipoForcado,
+      mensagem
+    });
 
-    const meta = {
-      confidence: resultado.confidence,
-      lowConfidence: !!resultado.lowConfidence,
-      exigeRevisao: !!resultado.exigeRevisao,
-      threshold: resultado.threshold,
-      isDemo: !!resultado.isDemo
-    };
+    if (!fluxo.sucesso) return res.status(400).json({ error: fluxo.erro || 'Falha no processamento' });
 
-    if (resultado.tipo === 'comprovante_abastecimento') {
-      const filtroObras = { status: 'em_andamento' };
-      if (req.user.empresa) filtroObras.empresa = req.user.empresa;
-      const obras = await Obra.find(filtroObras).select('nome codigo').sort({ nome: 1 });
+    const mensagemSalva = await MensagemAssistente.create({
+      empresa: req.user.empresa,
+      usuario: req.user.id,
+      pergunta: mensagem || `[documento:${fluxo.normalizado?.tipo}]`,
+      resposta: fluxo.resposta,
+      fontes: fluxo.fontes || [],
+      ferramentasUsadas: fluxo.ferramentasUsadas || [],
+      confirmacao: { previas: fluxo.previas, status: 'RASCUNHO' }
+    });
+
+    return res.json({
+      ...fluxo,
+      interacaoId: mensagemSalva._id,
+      confirmacaoId: mensagemSalva.confirmacao?._id,
+      tipo: fluxo.normalizado?.tipo,
+      dados: fluxo.normalizado,
+      confidence: fluxo.normalizado?.confidence,
+      lowConfidence: fluxo.normalizado?.lowConfidence,
+      exigeRevisao: fluxo.normalizado?.exigeRevisao,
+      isDemo: fluxo.normalizado?.isDemo
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+router.post('/analisar-imagem', async (req, res, next) => {
+  try {
+    const { imagemBase64, tipoForcado, mensagem } = req.body || {};
+    if (!imagemBase64) return res.status(400).json({ error: 'imagemBase64 e obrigatorio' });
+    if (imagemBase64.length > 10 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Imagem muito grande (max 10MB)' });
+    }
+
+    // Prefer full financial pipeline (match + previas)
+    const fluxo = await processarDocumentoFinanceiro({
+      empresaId: req.user.empresa,
+      imagemBase64,
+      tipoForcado,
+      mensagem
+    });
+
+    if (fluxo.sucesso) {
       return res.json({
-        tipo: 'comprovante_abastecimento',
-        dados: resultado.dados || {},
-        ...meta,
-        obras: obras.map((o) => ({ _id: o._id, nome: o.nome, codigo: o.codigo })),
-        mensagem:
-          meta.lowConfidence
-            ? 'Baixa confiança na leitura. Revise os dados antes de confirmar.'
-            : undefined
+        tipo: fluxo.normalizado.tipo,
+        dados: fluxo.normalizado,
+        confidence: fluxo.normalizado.confidence,
+        lowConfidence: fluxo.normalizado.lowConfidence,
+        exigeRevisao: fluxo.normalizado.exigeRevisao,
+        isDemo: fluxo.normalizado.isDemo,
+        threshold: fluxo.normalizado.threshold,
+        obras: fluxo.obras,
+        candidatos: fluxo.candidatos,
+        previas: fluxo.previas,
+        modo: fluxo.modo,
+        resposta: fluxo.resposta,
+        requerConfirmacao: true,
+        mensagem: fluxo.normalizado.lowConfidence
+          ? 'Baixa confiança na leitura. Revise os dados antes de confirmar.'
+          : undefined
       });
     }
 
+    const resultado = await analisarImagem(imagemBase64);
+    const filtroObras = { status: 'em_andamento' };
+    if (req.user.empresa) filtroObras.empresa = req.user.empresa;
+    const obras = await Obra.find(filtroObras).select('nome codigo').sort({ nome: 1 });
+
     return res.json({
       tipo: resultado.tipo || 'outro',
-      dados: resultado.dados || null,
-      resumo: resultado.resumo || null,
-      ...meta,
-      mensagem:
-        meta.lowConfidence
-          ? 'Baixa confiança na leitura. Revise os dados antes de confirmar.'
-          : undefined
+      dados: resultado.dados || resultado,
+      confidence: resultado.confidence,
+      lowConfidence: !!resultado.lowConfidence,
+      exigeRevisao: !!resultado.exigeRevisao,
+      isDemo: !!resultado.isDemo,
+      obras: obras.map((o) => ({ _id: o._id, nome: o.nome, codigo: o.codigo })),
+      mensagem: resultado.lowConfidence
+        ? 'Baixa confiança na leitura. Revise os dados antes de confirmar.'
+        : undefined
     });
   } catch (err) {
     return next(err);
@@ -401,32 +399,21 @@ router.post('/validar-chave', async (req, res, next) => {
     if (!provider || !apiKey || typeof apiKey !== 'string') {
       return res.status(400).json({ error: 'Provider e apiKey sao obrigatorios' });
     }
-
     let valido = false;
     let erro = '';
-
     if (provider === 'openai') {
       const chave = apiKey.trim();
-      if (!chave.startsWith('sk-')) {
-        erro = 'Chave da OpenAI deve começar com "sk-"';
-      } else if (chave.length < 20) {
-        erro = 'Chave da OpenAI invalida (muito curta)';
-      } else {
-        valido = true;
-      }
+      if (!chave.startsWith('sk-')) erro = 'Chave da OpenAI deve começar com "sk-"';
+      else if (chave.length < 20) erro = 'Chave da OpenAI invalida (muito curta)';
+      else valido = true;
     } else if (provider === 'gemini') {
       const chave = apiKey.trim();
-      if (!chave.startsWith('AI')) {
-        erro = 'Chave do Gemini deve começar com "AI"';
-      } else if (chave.length < 20) {
-        erro = 'Chave do Gemini invalida (muito curta)';
-      } else {
-        valido = true;
-      }
+      if (!chave.startsWith('AI')) erro = 'Chave do Gemini deve começar com "AI"';
+      else if (chave.length < 20) erro = 'Chave do Gemini invalida (muito curta)';
+      else valido = true;
     } else {
       erro = 'Provider invalido. Use "openai" ou "gemini"';
     }
-
     return res.json({ valido, erro });
   } catch (err) {
     return next(err);
@@ -444,7 +431,6 @@ router.post('/chat', async (req, res, next) => {
     }
 
     const operationalContext = await getOperationalContextHelper(req.user.empresa, req.user.id);
-
     const instancia =
       provider && apiKey ? await criarAssistenteComChave(provider, apiKey) : assistente;
 
@@ -504,7 +490,6 @@ router.get('/historico', async (req, res, next) => {
       .limit(Number(limite))
       .select('pergunta resposta fontes acaoSugerida createdAt')
       .lean();
-
     res.json(mensagens.reverse());
   } catch (err) {
     return next(err);
