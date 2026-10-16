@@ -18,7 +18,9 @@ const diarioObraSchema = new mongoose.Schema({
   confirmado: { type: Boolean, default: false },
   confirmadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   confirmadoEm: Date,
-  enviadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  /** Opcional quando vem do WhatsApp / assistente */
+  enviadoPor: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  origemWhatsApp: { type: mongoose.Schema.Types.ObjectId, ref: 'UsuarioWhatsApp' },
   observacao: { type: String, trim: true, maxlength: 2000 }
 }, { timestamps: true });
 
