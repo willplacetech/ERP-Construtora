@@ -59,7 +59,7 @@ function extrairDemoFlag(instancia) {
   return instancia?.modoEmissao === 'demo';
 }
 
-// WhatsApp Webhook Endpoint (for receiving messages from WhatsApp Cloud API)
+// WhatsApp Webhook Endpoint
 router.post('/webhook', async (req, res, next) => {
   try {
     const signature = req.headers['x-hub-signature-256'] || req.headers['x-signature'] || req.headers['X-Signature'];
@@ -97,7 +97,6 @@ router.post('/webhook', async (req, res, next) => {
     let perfilNome = '';
     let empresaId = req.headers['x-empresa-id'] || null;
 
-    // Meta Cloud API
     if (
       req.body.entry &&
       req.body.entry[0] &&
@@ -112,23 +111,17 @@ router.post('/webhook', async (req, res, next) => {
       mensagem = msg.text?.body || '';
       contatoId = msg.from;
       perfilNome = req.body.entry[0].changes[0].value.contacts?.[0]?.profile?.name || '';
-    }
-    // Evolution API
-    else if (req.body.event && req.body.data) {
+    } else if (req.body.event && req.body.data) {
       mensagemId = req.body.messageId || req.body.id || '';
       mensagem = req.body.data?.message || req.body.data?.text || '';
       contatoId = req.body.data?.key?.remoteJid || req.body.data?.sender || '';
       perfilNome = req.body.data?.pushName || '';
-    }
-    // Other formats
-    else if (req.body.messages && req.body.messages[0]) {
+    } else if (req.body.messages && req.body.messages[0]) {
       const msg = req.body.messages[0];
       mensagemId = msg.id || '';
       mensagem = msg.text || '';
       contatoId = msg.from || '';
-    }
-    // Fallback
-    else {
+    } else {
       mensagem = req.body.message || req.body.text || req.body.msg || '';
       mensagemId = req.body.id || req.body.messageId || '';
       contatoId = req.body.from || req.body.sender || req.body.contact || '';
@@ -139,10 +132,7 @@ router.post('/webhook', async (req, res, next) => {
       return res.status(400).json({ error: 'Mensagem nao encontrada no webhook' });
     }
 
-    let finalEmpresaId = empresaId;
-    if (!finalEmpresaId) {
-      finalEmpresaId = process.env.DEFAULT_WHATSAPP_EMPRESA_ID || null;
-    }
+    let finalEmpresaId = empresaId || process.env.DEFAULT_WHATSAPP_EMPRESA_ID || null;
 
     if (!finalEmpresaId) {
       return res.status(400).json({ error: 'Empresa nao identificada para este numero do WhatsApp' });
@@ -242,8 +232,24 @@ router.get('/status', (req, res) => {
     provedor,
     demo,
     limite: '20 consultas/hora',
-    chaveConfigurada: !!(process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY)
+    chaveConfigurada: !!(process.env.OPENAI_API_KEY || process.env.GEMINI_API_KEY),
+    confidenceThreshold: Number(process.env.LLM_RECEIPT_CONFIDENCE_THRESHOLD || 0.7)
   });
+});
+
+/** Briefing diário estruturado (Operação Enxuta) */
+router.get('/briefing', async (req, res, next) => {
+  try {
+    const modulo = req.query.modulo;
+    if (modulo) {
+      const parcial = await BriefingService.generateModuleBriefing(req.user.empresa, modulo);
+      return res.json(parcial);
+    }
+    const briefing = await getBriefingHelper(req.user.empresa, req.user.id);
+    return res.json(briefing);
+  } catch (err) {
+    return next(err);
+  }
 });
 
 router.post('/whatsapp/processar', async (req, res, next) => {
@@ -343,6 +349,14 @@ router.post('/analisar-imagem', async (req, res, next) => {
 
     const resultado = await analisarImagem(imagemBase64);
 
+    const meta = {
+      confidence: resultado.confidence,
+      lowConfidence: !!resultado.lowConfidence,
+      exigeRevisao: !!resultado.exigeRevisao,
+      threshold: resultado.threshold,
+      isDemo: !!resultado.isDemo
+    };
+
     if (resultado.tipo === 'comprovante_abastecimento') {
       const filtroObras = { status: 'em_andamento' };
       if (req.user.empresa) filtroObras.empresa = req.user.empresa;
@@ -350,14 +364,24 @@ router.post('/analisar-imagem', async (req, res, next) => {
       return res.json({
         tipo: 'comprovante_abastecimento',
         dados: resultado.dados || {},
-        isDemo: !!resultado.isDemo,
-        obras: obras.map((o) => ({ _id: o._id, nome: o.nome, codigo: o.codigo }))
+        ...meta,
+        obras: obras.map((o) => ({ _id: o._id, nome: o.nome, codigo: o.codigo })),
+        mensagem:
+          meta.lowConfidence
+            ? 'Baixa confiança na leitura. Revise os dados antes de confirmar.'
+            : undefined
       });
     }
 
     return res.json({
-      tipo: 'outro',
-      resumo: resultado.resumo || 'Não foi possível classificar a imagem.'
+      tipo: resultado.tipo || 'outro',
+      dados: resultado.dados || null,
+      resumo: resultado.resumo || null,
+      ...meta,
+      mensagem:
+        meta.lowConfidence
+          ? 'Baixa confiança na leitura. Revise os dados antes de confirmar.'
+          : undefined
     });
   } catch (err) {
     return next(err);
@@ -413,8 +437,6 @@ router.post('/chat', async (req, res, next) => {
     }
 
     const operationalContext = await getOperationalContextHelper(req.user.empresa, req.user.id);
-    // briefing disponível para evolução futura / logs
-    await getBriefingHelper(req.user.empresa, req.user.id);
 
     const instancia =
       provider && apiKey ? await criarAssistenteComChave(provider, apiKey) : assistente;
